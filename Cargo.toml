@@ -20,7 +20,7 @@ chrono = "0.4"
 toml = "0.8"
 # In-place config updates that preserve the user's comments/formatting.
 toml_edit = "0.25"
-dirs = "5"
+dirs = "6"
 serde = { version = "1", features = ["derive"] }
 # No tokio, no reqwest — transport is a `gh` subprocess on GPUI's background executor.
 # No `open` crate — gpui's cx.open_url covers open-in-browser.
