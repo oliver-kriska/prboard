@@ -1,0 +1,247 @@
+[
+  {
+    "number": 112,
+    "url": "https://github.com/acme/widgets/pull/112",
+    "title": "Extract notification service",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "action",
+    "bug": false,
+    "ci": "pass",
+    "conflict": false,
+    "reviewDecision": "APPROVED",
+    "reviewState": "approved",
+    "requested": [],
+    "reviews": [
+      {
+        "login": "grace",
+        "state": "APPROVED"
+      }
+    ],
+    "unresolved": 2
+  },
+  {
+    "number": 108,
+    "url": "https://github.com/acme/widgets/pull/108",
+    "title": "Fix the crash in parser",
+    "issue": "ENA-1234",
+    "issueUrl": "https://linear.app/enaia-dev/issue/ENA-1234",
+    "draft": false,
+    "category": "action",
+    "bug": true,
+    "ci": "pass",
+    "conflict": false,
+    "reviewDecision": null,
+    "reviewState": "none",
+    "requested": [],
+    "reviews": [],
+    "unresolved": 0
+  },
+  {
+    "number": 105,
+    "url": "https://github.com/acme/widgets/pull/105",
+    "title": "Migrate storage to sqlite",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "action",
+    "bug": false,
+    "ci": "pass",
+    "conflict": true,
+    "reviewDecision": "CHANGES_REQUESTED",
+    "reviewState": "changes",
+    "requested": [],
+    "reviews": [
+      {
+        "login": "carol",
+        "state": "CHANGES_REQUESTED"
+      }
+    ],
+    "unresolved": 0
+  },
+  {
+    "number": 104,
+    "url": "https://github.com/acme/widgets/pull/104",
+    "title": "Rework CI matrix",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "action",
+    "bug": false,
+    "ci": "fail",
+    "conflict": false,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewState": "waiting",
+    "requested": [
+      "bob"
+    ],
+    "reviews": [],
+    "unresolved": 3
+  },
+  {
+    "number": 103,
+    "url": "https://github.com/acme/widgets/pull/103",
+    "title": "Bump dependencies",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "action",
+    "bug": false,
+    "ci": "pass",
+    "conflict": false,
+    "reviewDecision": null,
+    "reviewState": "none",
+    "requested": [],
+    "reviews": [],
+    "unresolved": 0
+  },
+  {
+    "number": 111,
+    "url": "https://github.com/acme/widgets/pull/111",
+    "title": "Document release process",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "await",
+    "bug": false,
+    "ci": "pass",
+    "conflict": false,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewState": "commented",
+    "requested": [
+      "platform"
+    ],
+    "reviews": [
+      {
+        "login": "frank",
+        "state": "COMMENTED"
+      }
+    ],
+    "unresolved": 0
+  },
+  {
+    "number": 110,
+    "url": "https://github.com/acme/widgets/pull/110",
+    "title": "Speed up cold start",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "await",
+    "bug": false,
+    "ci": "running",
+    "conflict": false,
+    "reviewDecision": "APPROVED",
+    "reviewState": "approved",
+    "requested": [],
+    "reviews": [
+      {
+        "login": "eve",
+        "state": "APPROVED"
+      }
+    ],
+    "unresolved": 0
+  },
+  {
+    "number": 109,
+    "url": "https://github.com/acme/widgets/pull/109",
+    "title": "Harden webhook retries",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "await",
+    "bug": false,
+    "ci": "pass",
+    "conflict": false,
+    "reviewDecision": "APPROVED",
+    "reviewState": "approved",
+    "requested": [],
+    "reviews": [
+      {
+        "login": null,
+        "state": "APPROVED"
+      },
+      {
+        "login": "dave",
+        "state": "DISMISSED"
+      }
+    ],
+    "unresolved": 0
+  },
+  {
+    "number": 102,
+    "url": "https://github.com/acme/widgets/pull/102",
+    "title": "Refactor settings storage",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "await",
+    "bug": false,
+    "ci": "pass",
+    "conflict": false,
+    "reviewDecision": "REVIEW_REQUIRED",
+    "reviewState": "waiting",
+    "requested": [
+      "mkurkov",
+      "abs"
+    ],
+    "reviews": [],
+    "unresolved": 0
+  },
+  {
+    "number": 101,
+    "url": "https://github.com/acme/widgets/pull/101",
+    "title": "Add pagination to widget list",
+    "issue": null,
+    "issueUrl": null,
+    "draft": false,
+    "category": "await",
+    "bug": false,
+    "ci": "pass",
+    "conflict": false,
+    "reviewDecision": "APPROVED",
+    "reviewState": "approved",
+    "requested": [],
+    "reviews": [
+      {
+        "login": "alice",
+        "state": "APPROVED"
+      }
+    ],
+    "unresolved": 0
+  },
+  {
+    "number": 107,
+    "url": "https://github.com/acme/widgets/pull/107",
+    "title": "Sketch: tabs prototype",
+    "issue": null,
+    "issueUrl": null,
+    "draft": true,
+    "category": "draft",
+    "bug": false,
+    "ci": "none",
+    "conflict": false,
+    "reviewDecision": null,
+    "reviewState": "none",
+    "requested": [],
+    "reviews": [],
+    "unresolved": 0
+  },
+  {
+    "number": 106,
+    "url": "https://github.com/acme/widgets/pull/106",
+    "title": "Experiment with new renderer",
+    "issue": null,
+    "issueUrl": null,
+    "draft": true,
+    "category": "draft",
+    "bug": false,
+    "ci": "fail",
+    "conflict": false,
+    "reviewDecision": null,
+    "reviewState": "none",
+    "requested": [],
+    "reviews": [],
+    "unresolved": 0
+  }
+]

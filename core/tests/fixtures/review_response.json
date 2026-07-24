@@ -1,0 +1,129 @@
+{
+  "data": {
+    "search": {
+      "nodes": [
+        {
+          "number": 201,
+          "title": "Add CSV export",
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-18T09:00:00Z",
+          "author": { "login": "petra" },
+          "labels": { "nodes": [] },
+          "reviewRequests": {
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+          },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 202,
+          "title": "Tighten input validation",
+          "isDraft": false,
+          "reviewDecision": "APPROVED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-19T09:00:00Z",
+          "author": { "login": "tomas" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "oliver" }, "state": "APPROVED", "submittedAt": "2026-07-20T10:00:00Z" },
+              { "author": { "login": "alice" }, "state": "COMMENTED", "submittedAt": "2026-07-20T11:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [{ "isResolved": true }] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 203,
+          "title": "[ENA-9600] Fix ReminderBadge remove-reminder KeyError",
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-20T09:00:00Z",
+          "author": { "login": "petra" },
+          "labels": { "nodes": [{ "name": "bug" }] },
+          "reviewRequests": {
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+          },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [{ "isResolved": false }] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "ERROR" } } }] }
+        },
+        {
+          "number": 204,
+          "title": "Rename tenant models",
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "mergeable": "CONFLICTING",
+          "createdAt": "2026-07-20T10:00:00Z",
+          "author": { "login": "jana" },
+          "labels": { "nodes": [{ "name": "bug" }] },
+          "reviewRequests": {
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+          },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 205,
+          "title": "WIP shipping estimates",
+          "isDraft": true,
+          "reviewDecision": null,
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-21T09:00:00Z",
+          "author": { "login": "tomas" },
+          "labels": { "nodes": [] },
+          "reviewRequests": {
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+          },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] }
+        },
+        {
+          "number": 206,
+          "title": "Retry failed exports",
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-21T10:00:00Z",
+          "author": { "login": "petra" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "oliver" }, "state": "CHANGES_REQUESTED", "submittedAt": "2026-07-22T10:00:00Z" },
+              { "author": { "login": "oliver" }, "state": "COMMENTED", "submittedAt": "2026-07-23T10:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [{ "isResolved": false }, { "isResolved": true }] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 207,
+          "title": "Split billing context",
+          "isDraft": false,
+          "reviewDecision": "CHANGES_REQUESTED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-22T09:00:00Z",
+          "author": { "login": "marek" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "oliver" }, "state": "CHANGES_REQUESTED", "submittedAt": "2026-07-22T12:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [{ "isResolved": false }] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        }
+      ]
+    },
+    "rateLimit": { "limit": 5000, "cost": 3, "remaining": 4984, "resetAt": "2026-07-24T18:00:00Z" }
+  }
+}

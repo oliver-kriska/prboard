@@ -1,0 +1,27 @@
+[workspace]
+members = ["core"]
+
+[package]
+name = "prboard"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "GitHub PR review dashboard — a native desktop app"
+
+[dependencies]
+prboard-core = { path = "core" }
+# Variant A (crates.io, pinned) — see .claude/research/2026-07-24-gpui-desktop-build.md §1.1.
+# Do NOT copy git-main gpui-component snippets; the bootstrap differs (gpui_platform split).
+gpui = "=0.2.2"
+gpui-component = "=0.5.1"
+serde_json = "1"
+anyhow = "1"
+chrono = "0.4"
+open = "5"
+# No tokio, no reqwest — transport is a `gh` subprocess on GPUI's background executor.
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

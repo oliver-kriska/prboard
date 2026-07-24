@@ -1,0 +1,228 @@
+{
+  "data": {
+    "search": {
+      "nodes": [
+        {
+          "number": 101,
+          "title": "Add pagination to widget list",
+          "isDraft": false,
+          "reviewDecision": "APPROVED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-18T09:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "alice" }, "state": "APPROVED", "submittedAt": "2026-07-19T10:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 102,
+          "title": "Refactor settings storage",
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-19T09:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": {
+            "nodes": [
+              { "requestedReviewer": { "__typename": "User", "login": "mkurkov" } },
+              { "requestedReviewer": { "__typename": "User", "login": "abs" } }
+            ]
+          },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 103,
+          "title": "Bump dependencies",
+          "isDraft": false,
+          "reviewDecision": null,
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-20T09:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 104,
+          "title": "Rework CI matrix",
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-20T10:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [{ "name": "infra" }] },
+          "reviewRequests": {
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "bob" } }]
+          },
+          "reviews": { "nodes": [] },
+          "reviewThreads": {
+            "nodes": [
+              { "isResolved": false },
+              { "isResolved": false },
+              { "isResolved": false },
+              { "isResolved": true }
+            ]
+          },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "FAILURE" } } }] }
+        },
+        {
+          "number": 105,
+          "title": "Migrate storage to sqlite",
+          "isDraft": false,
+          "reviewDecision": "CHANGES_REQUESTED",
+          "mergeable": "CONFLICTING",
+          "createdAt": "2026-07-20T11:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "carol" }, "state": "CHANGES_REQUESTED", "submittedAt": "2026-07-21T10:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 106,
+          "title": "Experiment with new renderer",
+          "isDraft": true,
+          "reviewDecision": null,
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-21T09:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "FAILURE" } } }] }
+        },
+        {
+          "number": 107,
+          "title": "Sketch: tabs prototype",
+          "isDraft": true,
+          "reviewDecision": null,
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-21T10:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": { "nodes": [] },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] }
+        },
+        {
+          "number": 108,
+          "title": "WIP [ENA-1234] Fix the crash in parser",
+          "isDraft": false,
+          "reviewDecision": null,
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-21T11:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [{ "name": "bug" }, { "name": "backend" }] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "github-actions" }, "state": "COMMENTED", "submittedAt": "2026-07-21T12:00:00Z" },
+              { "author": { "login": "chatgpt-codex-connector" }, "state": "COMMENTED", "submittedAt": "2026-07-21T12:05:00Z" },
+              { "author": { "login": "oliver" }, "state": "COMMENTED", "submittedAt": "2026-07-21T12:10:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 109,
+          "title": "Harden webhook retries",
+          "isDraft": false,
+          "reviewDecision": "APPROVED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-22T09:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": null, "state": "APPROVED", "submittedAt": "2026-07-22T10:00:00Z" },
+              { "author": { "login": "dave" }, "state": "DISMISSED", "submittedAt": "2026-07-22T11:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 110,
+          "title": "Speed up cold start",
+          "isDraft": false,
+          "reviewDecision": "APPROVED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-22T10:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "eve" }, "state": "COMMENTED", "submittedAt": "2026-07-22T11:00:00Z" },
+              { "author": { "login": "eve" }, "state": "APPROVED", "submittedAt": "2026-07-23T09:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "PENDING" } } }] }
+        },
+        {
+          "number": 111,
+          "title": "Document release process",
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-23T09:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": {
+            "nodes": [
+              { "requestedReviewer": { "__typename": "Team", "slug": "platform" } },
+              { "requestedReviewer": null }
+            ]
+          },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "frank" }, "state": "COMMENTED", "submittedAt": "2026-07-23T10:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "number": 112,
+          "title": "Extract notification service",
+          "isDraft": false,
+          "reviewDecision": "APPROVED",
+          "mergeable": "MERGEABLE",
+          "createdAt": "2026-07-23T11:00:00Z",
+          "author": { "login": "oliver" },
+          "labels": { "nodes": [] },
+          "reviewRequests": { "nodes": [] },
+          "reviews": {
+            "nodes": [
+              { "author": { "login": "grace" }, "state": "APPROVED", "submittedAt": "2026-07-23T12:00:00Z" }
+            ]
+          },
+          "reviewThreads": { "nodes": [{ "isResolved": false }, { "isResolved": false }] },
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        }
+      ]
+    },
+    "rateLimit": { "limit": 5000, "cost": 3, "remaining": 4987, "resetAt": "2026-07-24T18:00:00Z" }
+  }
+}
