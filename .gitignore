@@ -2,3 +2,5 @@
 *.log
 rss.csv
 measurements/
+.claude/research/
+.claude/scriptorium/
