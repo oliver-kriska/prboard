@@ -10,7 +10,7 @@ use gpui::{
 };
 use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_component::table::{Table, TableEvent, TableState};
-use gpui_component::{h_flex, v_flex, ActiveTheme, IndexPath, Sizable};
+use gpui_component::{h_flex, v_flex, ActiveTheme, IndexPath, Sizable, TitleBar};
 
 use crate::state::{relative, AppState};
 use crate::table::BoardTableDelegate;
@@ -221,17 +221,15 @@ impl RootView {
             .as_ref()
             .map(|r| format!("API {}/{}", r.remaining, r.limit));
 
-        // One-line header (spec §6): identity + counts left, status right.
-        // An error replaces the sync text — it IS the sync status then.
+        // One-line header (spec §6) living INSIDE the transparent titlebar:
+        // identity + counts left, status right, traffic lights overlaid by
+        // the system. An error replaces the sync text — it IS the sync
+        // status then. TitleBar supplies bg/border/drag/left padding.
         h_flex()
-            .flex_shrink_0()
-            .px(px(crate::design::HEADER_PAD_X))
-            .py(px(crate::design::HEADER_PAD_Y))
+            .flex_1()
+            .pr(px(crate::design::HEADER_PAD_X))
             .gap_3()
             .items_center()
-            .bg(theme.title_bar)
-            .border_b_1()
-            .border_color(theme.title_bar_border)
             .map(|this| match &self.repo_select {
                 Some(select) => this.child(
                     div()
@@ -333,7 +331,7 @@ impl Render for RootView {
             .text_color(theme.foreground)
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::handle_key_down))
-            .child(self.render_header(cx))
+            .child(TitleBar::new().child(self.render_header(cx)))
             // Full-bleed table (spec §5): the window IS the table; 13 px
             // cells at Size::Small density.
             .child(

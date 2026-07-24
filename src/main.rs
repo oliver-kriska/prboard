@@ -11,10 +11,7 @@ mod theme;
 
 use std::sync::Arc;
 
-use gpui::{
-    point, px, size, App, AppContext, Application, TitlebarOptions, WindowBounds, WindowKind,
-    WindowOptions,
-};
+use gpui::{px, size, App, AppContext, Application, WindowBounds, WindowKind, WindowOptions};
 use prboard_core::board::{BoardConfig, IssueLinkRule, Mode};
 use prboard_core::github::gh_cli::{current_login, detect_repo, GhCliTransport};
 
@@ -141,11 +138,9 @@ fn main() {
 
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::centered(size(px(1280.), px(820.)), cx)),
-            titlebar: Some(TitlebarOptions {
-                title: Some("prboard".into()),
-                appears_transparent: false,
-                traffic_light_position: Some(point(px(9.), px(9.))),
-            }),
+            // Transparent native chrome: the app's own header row IS the
+            // titlebar (traffic lights overlay it), like Zed/modern Mac apps.
+            titlebar: Some(gpui_component::TitleBar::title_bar_options()),
             window_min_size: Some(size(px(900.), px(560.))),
             kind: WindowKind::Normal,
             app_id: Some("dev.oliverkriska.prboard".into()),
