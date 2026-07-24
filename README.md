@@ -20,21 +20,44 @@ cargo build --release
 ./target/release/prboard --review             # your incoming review queue
 ```
 
-Configuration (env vars, for now):
+### Install as a Mac app (Spotlight)
 
-| Variable | Meaning |
-|---|---|
-| `PRBOARD_REPO` | `owner/name` when not passing `--repo` |
-| `PRBOARD_REFRESH_SECS` | refresh interval; default 300, hard floor 30 |
-| `PRBOARD_THEME` | `system` (default, follows macOS appearance live) \| `light` \| `dark` |
-| `PRBOARD_ISSUE_PATTERN` | regex extracting a ticket id from PR titles, e.g. `ENA-[0-9]+` |
-| `PRBOARD_ISSUE_URL_TEMPLATE` | ticket URL with `{id}`, e.g. `https://linear.app/acme/issue/{id}` |
-| `PRBOARD_DEFAULT_REVIEWERS` | comma-separated logins suggested in the "no reviewers" note |
+```sh
+cargo build --release
+scripts/bundle-app.sh     # assembles + ad-hoc-signs ~/Applications/prboard.app
+```
+
+Then launch it from Spotlight like any app. Spotlight launches carry no shell
+env and no working directory, so configure via the config file below (at
+minimum `repo`). Distribution via Homebrew (`brew install --cask
+oliver-kriska/tap/prboard`) is templated in `packaging/` but blocked on an
+Apple Developer ID for notarization — see `packaging/RELEASING.md`.
+
+### Configuration
+
+`~/.config/prboard/config.toml` (or `$XDG_CONFIG_HOME/prboard/config.toml`);
+every value optional, env vars override the file, CLI args override both:
+
+```toml
+repo = "acme/widgets"              # default repo
+repos = ["acme/widgets", "acme/api"]  # >1 entries -> repo picker in the header
+refresh_secs = 300                 # hard floor 30
+theme = "system"                   # system | light | dark
+default_reviewers = ["alice", "bob"]
+
+[issue_link]
+pattern = "ENA-[0-9]+"             # ticket id regex matched in PR titles
+url_template = "https://linear.app/acme/issue/{id}"
+```
+
+Env vars: `PRBOARD_REPO`, `PRBOARD_REFRESH_SECS`, `PRBOARD_THEME`,
+`PRBOARD_ISSUE_PATTERN` + `PRBOARD_ISSUE_URL_TEMPLATE`,
+`PRBOARD_DEFAULT_REVIEWERS` (comma-separated).
 
 Keys: `↑`/`↓` select · `⏎`/`o` open PR in browser · `y` copy PR URL ·
 `r` refresh now · `t` cycle theme (system → light → dark) · `q` quit.
-Double-click a row to open it; drag column edges to resize; hover the Note or
-Title cell for the full text.
+Double-click a row to open it; drag column edges to resize; hover the Note,
+Title, Labels, or Reviewed-by cell for the full text.
 
 ## Building
 
