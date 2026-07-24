@@ -11,12 +11,14 @@ use gpui_component::{h_flex, v_flex, ActiveTheme};
 
 use crate::state::{refresh_interval, relative, AppState};
 use crate::table::BoardTableDelegate;
+use crate::theme::ThemePref;
 
 pub struct RootView {
     state: Entity<AppState>,
     table: Entity<TableState<BoardTableDelegate>>,
     focus_handle: FocusHandle,
     seen_generation: u64,
+    theme_pref: ThemePref,
 }
 
 impl RootView {
@@ -26,8 +28,24 @@ impl RootView {
             TableState::new(BoardTableDelegate::new(mode), window, cx)
                 .sortable(false)
                 .col_movable(false)
+                .col_resizable(true)
                 .row_selectable(true)
         });
+
+        // Theme: apply the configured preference, and while in System mode
+        // follow macOS appearance changes live.
+        let theme_pref = ThemePref::from_env();
+        theme_pref.apply(window, cx);
+        let this_handle = cx.entity().downgrade();
+        window
+            .observe_window_appearance(move |window, cx| {
+                if let Some(view) = this_handle.upgrade() {
+                    if view.read(cx).theme_pref == ThemePref::System {
+                        ThemePref::System.apply(window, cx);
+                    }
+                }
+            })
+            .detach();
 
         // Push new rows into the table only when a fetch actually landed —
         // gate the observer on generation (the PRFlow infinite-observer trap).
@@ -60,6 +78,7 @@ impl RootView {
             table,
             focus_handle: cx.focus_handle(),
             seen_generation: 0,
+            theme_pref,
         };
         this.start_refresh_loop(cx);
         this
@@ -96,7 +115,7 @@ impl RootView {
     fn handle_key_down(
         &mut self,
         event: &KeyDownEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let key = event.keystroke.key.as_str();
@@ -104,6 +123,11 @@ impl RootView {
         match key {
             "q" => cx.quit(),
             "r" => self.state.update(cx, |s, cx| s.refresh(cx)),
+            "t" if !platform => {
+                self.theme_pref = self.theme_pref.next();
+                self.theme_pref.apply(window, cx);
+                cx.notify();
+            }
             "enter" | "o" if !platform => {
                 if let Some(url) = self.selected_row_url(cx) {
                     cx.open_url(&url);
@@ -182,7 +206,10 @@ impl RootView {
                         this.child(div().text_color(theme.danger).child(err))
                     })
                     .child(div().flex_1())
-                    .child("↑↓ select · ⏎ open · y copy · r refresh · q quit"),
+                    .child(format!(
+                        "↑↓ select · ⏎ open · y copy · r refresh · t theme ({}) · q quit",
+                        self.theme_pref.label()
+                    )),
             )
     }
 }

@@ -26,12 +26,15 @@ Configuration (env vars, for now):
 |---|---|
 | `PRBOARD_REPO` | `owner/name` when not passing `--repo` |
 | `PRBOARD_REFRESH_SECS` | refresh interval; default 300, hard floor 30 |
+| `PRBOARD_THEME` | `system` (default, follows macOS appearance live) \| `light` \| `dark` |
 | `PRBOARD_ISSUE_PATTERN` | regex extracting a ticket id from PR titles, e.g. `ENA-[0-9]+` |
 | `PRBOARD_ISSUE_URL_TEMPLATE` | ticket URL with `{id}`, e.g. `https://linear.app/acme/issue/{id}` |
 | `PRBOARD_DEFAULT_REVIEWERS` | comma-separated logins suggested in the "no reviewers" note |
 
 Keys: `↑`/`↓` select · `⏎`/`o` open PR in browser · `y` copy PR URL ·
-`r` refresh now · `q` quit. Double-click a row to open it.
+`r` refresh now · `t` cycle theme (system → light → dark) · `q` quit.
+Double-click a row to open it; drag column edges to resize; hover the Note or
+Title cell for the full text.
 
 ## Building
 

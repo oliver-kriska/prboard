@@ -6,10 +6,11 @@
 //! continuous animation would defeat the idle-GPU half of the spike gate.
 
 use gpui::{
-    div, px, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Stateful, Styled,
-    Window,
+    div, px, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Stateful,
+    StatefulInteractiveElement, Styled, Window,
 };
 use gpui_component::table::{Column, TableDelegate, TableState};
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, ActiveTheme};
 use prboard_core::board::{BoardRow, Category, Ci, Mode};
 
@@ -22,15 +23,18 @@ impl BoardTableDelegate {
     pub fn new(mode: Mode) -> Self {
         // Column sets mirror the prototype dashboard's two tables (SKILL.md).
         let columns = match mode {
+            // The Note is the highest-value column — it wins width over
+            // Title; both carry hover tooltips with the full text, and every
+            // column is drag-resizable.
             Mode::Authored => vec![
                 Column::new("pr", "PR").width(px(76.)),
                 Column::new("status", "Status").width(px(64.)),
                 Column::new("bug", "Bug").width(px(44.)),
                 Column::new("ci", "CI").width(px(64.)),
-                Column::new("requested", "Requested").width(px(150.)),
-                Column::new("reviewed", "Reviewed by").width(px(180.)),
-                Column::new("title", "Title").width(px(400.)),
-                Column::new("note", "Note").width(px(340.)),
+                Column::new("requested", "Requested").width(px(140.)),
+                Column::new("reviewed", "Reviewed by").width(px(170.)),
+                Column::new("title", "Title").width(px(360.)),
+                Column::new("note", "Note").width(px(460.)),
             ],
             Mode::Review => vec![
                 Column::new("pr", "PR").width(px(76.)),
@@ -38,8 +42,8 @@ impl BoardTableDelegate {
                 Column::new("ci", "CI").width(px(64.)),
                 Column::new("bug", "Bug").width(px(44.)),
                 Column::new("unresolved", "Unres").width(px(56.)),
-                Column::new("title", "Title").width(px(420.)),
-                Column::new("note", "Note").width(px(340.)),
+                Column::new("title", "Title").width(px(380.)),
+                Column::new("note", "Note").width(px(460.)),
             ],
         };
         Self {
@@ -144,7 +148,9 @@ impl TableDelegate for BoardTableDelegate {
             }
             "requested" => {
                 if row.requested.is_empty() {
-                    div().text_color(muted).child("none")
+                    // The red no-reviewers note already carries this signal;
+                    // anything louder than a dim dash is noise.
+                    div().text_color(muted.opacity(0.5)).child("—")
                 } else {
                     div().child(row.requested.join(", "))
                 }
@@ -168,24 +174,40 @@ impl TableDelegate for BoardTableDelegate {
                     div().child(text)
                 }
             }
-            "title" => match &row.issue {
-                Some(issue) => h_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_color(theme.accent_foreground)
-                            .child(issue.clone()),
-                    )
-                    .child(row.title.clone()),
-                None => div().child(row.title.clone()),
-            },
+            "title" => {
+                let full = match &row.issue {
+                    Some(issue) => format!("{issue} · {}", row.title),
+                    None => row.title.clone(),
+                };
+                let inner = match &row.issue {
+                    Some(issue) => h_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_color(theme.accent_foreground)
+                                .child(issue.clone()),
+                        )
+                        .child(row.title.clone()),
+                    None => div().child(row.title.clone()),
+                };
+                return inner
+                    .id(("title", row_ix))
+                    .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                    .into_any_element();
+            }
             "note" => {
                 let color = match row.category {
                     Category::Action | Category::Todo => theme.danger,
                     Category::Await | Category::Done => theme.success,
                     Category::Draft => muted,
                 };
-                div().text_color(color).child(row.note.clone())
+                let full = row.note.clone();
+                return div()
+                    .text_color(color)
+                    .child(row.note.clone())
+                    .id(("note", row_ix))
+                    .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                    .into_any_element();
             }
             _ => div(),
         };

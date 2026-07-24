@@ -4,6 +4,7 @@
 mod app;
 mod state;
 mod table;
+mod theme;
 
 use std::sync::Arc;
 
@@ -25,6 +26,7 @@ current directory (via `gh repo view`). Requires an authenticated `gh`.
 Environment:
   PRBOARD_REPO                 owner/name
   PRBOARD_REFRESH_SECS         refresh interval (default 300, floor 30)
+  PRBOARD_THEME                system | light | dark (default system; `t` cycles)
   PRBOARD_ISSUE_PATTERN        e.g. ENA-[0-9]+
   PRBOARD_ISSUE_URL_TEMPLATE   e.g. https://linear.app/acme/issue/{id}
   PRBOARD_DEFAULT_REVIEWERS    comma-separated logins for the no-reviewer note";
