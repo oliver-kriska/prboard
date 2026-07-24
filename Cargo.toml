@@ -16,6 +16,10 @@ prboard-core = { path = "core" }
 gpui = "=0.2.2"
 gpui-component = "=0.5.1"
 chrono = "0.4"
+# Config file (Spotlight launches have no env vars / cwd).
+toml = "0.8"
+dirs = "5"
+serde = { version = "1", features = ["derive"] }
 # No tokio, no reqwest — transport is a `gh` subprocess on GPUI's background executor.
 # No `open` crate — gpui's cx.open_url covers open-in-browser.
 

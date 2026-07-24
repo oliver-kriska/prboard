@@ -5,6 +5,7 @@
 //! Nothing here may animate: the table sits idle between refreshes and any
 //! continuous animation would defeat the idle-GPU half of the spike gate.
 
+use gpui::prelude::FluentBuilder;
 use gpui::{
     div, px, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Stateful,
     StatefulInteractiveElement, Styled, Window,
@@ -29,7 +30,7 @@ impl BoardTableDelegate {
             Mode::Authored => vec![
                 Column::new("pr", "PR").width(px(76.)),
                 Column::new("status", "Status").width(px(64.)),
-                Column::new("bug", "Bug").width(px(44.)),
+                Column::new("labels", "Labels").width(px(120.)),
                 Column::new("ci", "CI").width(px(64.)),
                 Column::new("requested", "Requested").width(px(140.)),
                 Column::new("reviewed", "Reviewed by").width(px(170.)),
@@ -40,7 +41,7 @@ impl BoardTableDelegate {
                 Column::new("pr", "PR").width(px(76.)),
                 Column::new("author", "Author").width(px(120.)),
                 Column::new("ci", "CI").width(px(64.)),
-                Column::new("bug", "Bug").width(px(44.)),
+                Column::new("labels", "Labels").width(px(120.)),
                 Column::new("unresolved", "Unres").width(px(56.)),
                 Column::new("title", "Title").width(px(380.)),
                 Column::new("note", "Note").width(px(460.)),
@@ -68,6 +69,16 @@ fn review_glyph(state: &str) -> &'static str {
         "CHANGES_REQUESTED" => "✋",
         "DISMISSED" => "🚫",
         _ => "·",
+    }
+}
+
+fn review_state_word(state: &str) -> &'static str {
+    match state {
+        "APPROVED" => "approved",
+        "COMMENTED" => "commented",
+        "CHANGES_REQUESTED" => "requested changes",
+        "DISMISSED" => "dismissed",
+        _ => "reviewed",
     }
 }
 
@@ -123,11 +134,51 @@ impl TableDelegate for BoardTableDelegate {
                     div().child("ready")
                 }
             }
-            "bug" => {
-                if row.bug {
-                    div().child("🐛")
+            "labels" => {
+                if row.labels.is_empty() {
+                    div().text_color(muted.opacity(0.5)).child("—")
                 } else {
-                    div().text_color(muted).child("—")
+                    // Chips; "bug" is the loud one. Cap the visible count —
+                    // the tooltip carries the full list.
+                    const VISIBLE: usize = 2;
+                    let full = row.labels.join(", ");
+                    // "bug" must never hide behind the +n overflow.
+                    let mut ordered: Vec<String> = row.labels.clone();
+                    ordered.sort_by_key(|l| l != "bug");
+                    let mut chips = h_flex().gap_1().overflow_hidden();
+                    for label in ordered.iter().take(VISIBLE) {
+                        let is_bug = label == "bug";
+                        let label = label.clone();
+                        let chip = div()
+                            .px_1p5()
+                            .rounded_sm()
+                            .text_xs()
+                            .whitespace_nowrap()
+                            .map(|c| {
+                                if is_bug {
+                                    c.bg(theme.danger.opacity(0.12))
+                                        .text_color(theme.danger)
+                                        .child(format!("🐛 {label}"))
+                                } else {
+                                    c.bg(theme.muted.opacity(0.5))
+                                        .text_color(theme.muted_foreground)
+                                        .child(label.clone())
+                                }
+                            });
+                        chips = chips.child(chip);
+                    }
+                    if row.labels.len() > VISIBLE {
+                        chips = chips.child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(format!("+{}", row.labels.len() - VISIBLE)),
+                        );
+                    }
+                    return chips
+                        .id(("labels", row_ix))
+                        .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                        .into_any_element();
                 }
             }
             "ci" => match row.ci {
@@ -159,19 +210,40 @@ impl TableDelegate for BoardTableDelegate {
                 if row.reviews.is_empty() {
                     div().text_color(muted).child("—")
                 } else {
+                    // Glyph first: when the column truncates, the state glyph
+                    // is the information — the login is recoverable from the
+                    // tooltip, the 🚫/✋ is not.
                     let text = row
                         .reviews
                         .iter()
                         .map(|r| {
                             format!(
                                 "{} {}",
+                                review_glyph(&r.state),
                                 r.login.as_deref().unwrap_or("?"),
-                                review_glyph(&r.state)
                             )
                         })
                         .collect::<Vec<_>>()
                         .join("  ");
-                    div().child(text)
+                    let full = row
+                        .reviews
+                        .iter()
+                        .map(|r| {
+                            format!(
+                                "{} {}",
+                                r.login.as_deref().unwrap_or("?"),
+                                review_state_word(&r.state)
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    return div()
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .child(text)
+                        .id(("reviewed", row_ix))
+                        .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                        .into_any_element();
                 }
             }
             "title" => {
@@ -212,6 +284,16 @@ impl TableDelegate for BoardTableDelegate {
             _ => div(),
         };
         cell.into_any_element()
+    }
+
+    fn render_last_empty_col(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        // The default renders a 12px filler that reads as a stray empty
+        // column header after Note. The Note column is elastic; no filler.
+        div()
     }
 
     fn render_empty(

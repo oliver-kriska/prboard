@@ -9,6 +9,31 @@ use serde_json::Value;
 
 use super::{GhError, GithubTransport, TokenSource};
 
+/// Locate `gh`. Apps launched from Spotlight/Finder inherit a minimal PATH
+/// (`/usr/bin:/bin`) that misses Homebrew, so a bare "gh" only works from a
+/// terminal — fall back to the standard install locations.
+pub fn resolve_gh_path() -> String {
+    if which_on_path("gh") {
+        return "gh".into();
+    }
+    for candidate in [
+        "/opt/homebrew/bin/gh", // macOS arm64 Homebrew
+        "/usr/local/bin/gh",    // macOS x86_64 Homebrew / manual installs
+        "/home/linuxbrew/.linuxbrew/bin/gh",
+    ] {
+        if std::path::Path::new(candidate).is_file() {
+            return candidate.into();
+        }
+    }
+    "gh".into() // let spawn fail with NotInstalled
+}
+
+fn which_on_path(bin: &str) -> bool {
+    std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).any(|dir| dir.join(bin).is_file()))
+        .unwrap_or(false)
+}
+
 pub struct GhCliTransport {
     gh_path: String,
 }
@@ -16,7 +41,7 @@ pub struct GhCliTransport {
 impl GhCliTransport {
     pub fn new() -> Self {
         Self {
-            gh_path: "gh".into(),
+            gh_path: resolve_gh_path(),
         }
     }
 }
@@ -84,7 +109,7 @@ pub struct GhCliTokenSource {
 impl GhCliTokenSource {
     pub fn new() -> Self {
         Self {
-            gh_path: "gh".into(),
+            gh_path: resolve_gh_path(),
         }
     }
 }
@@ -114,7 +139,7 @@ impl TokenSource for GhCliTokenSource {
 
 /// `owner/name` of the repo the given directory belongs to, via `gh repo view`.
 pub fn detect_repo(dir: &std::path::Path) -> Result<String, GhError> {
-    run_gh_line(Command::new("gh").current_dir(dir).args([
+    run_gh_line(Command::new(resolve_gh_path()).current_dir(dir).args([
         "repo",
         "view",
         "--json",
@@ -126,7 +151,22 @@ pub fn detect_repo(dir: &std::path::Path) -> Result<String, GhError> {
 
 /// The authenticated user's login (resolves what the prototype calls `@me`).
 pub fn current_login() -> Result<String, GhError> {
-    run_gh_line(Command::new("gh").args(["api", "user", "--jq", ".login"]))
+    run_gh_line(Command::new(resolve_gh_path()).args(["api", "user", "--jq", ".login"]))
+}
+
+/// Repos the user can access, newest-activity first — feeds the repo picker.
+pub fn list_repos(limit: u32) -> Result<Vec<String>, GhError> {
+    let out = run_gh_line(Command::new(resolve_gh_path()).args([
+        "repo",
+        "list",
+        "--limit",
+        &limit.to_string(),
+        "--json",
+        "nameWithOwner",
+        "--jq",
+        ".[].nameWithOwner",
+    ]))?;
+    Ok(out.lines().map(|l| l.trim().to_string()).collect())
 }
 
 fn run_gh_line(cmd: &mut Command) -> Result<String, GhError> {

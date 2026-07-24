@@ -1,28 +1,47 @@
 //! Root view: header (repo, counts, sync + rate-limit status) over the board
 //! table, the auto-refresh loop, and the keyboard/mouse actions.
 
+use std::time::Duration;
+
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
+    div, px, App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window,
 };
+use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_component::table::{Table, TableEvent, TableState};
-use gpui_component::{h_flex, v_flex, ActiveTheme};
+use gpui_component::{h_flex, v_flex, ActiveTheme, IndexPath, Sizable};
 
-use crate::state::{refresh_interval, relative, AppState};
+use crate::state::{relative, AppState};
 use crate::table::BoardTableDelegate;
 use crate::theme::ThemePref;
+
+/// Startup decisions resolved in `main` (CLI + env + config file).
+pub struct Launch {
+    pub theme: ThemePref,
+    pub refresh: Duration,
+    /// Repo-picker entries; the active repo is always among them.
+    pub repos: Vec<String>,
+}
 
 pub struct RootView {
     state: Entity<AppState>,
     table: Entity<TableState<BoardTableDelegate>>,
+    /// Present only when there is more than one repo to pick from.
+    repo_select: Option<Entity<SelectState<SearchableVec<String>>>>,
     focus_handle: FocusHandle,
     seen_generation: u64,
     theme_pref: ThemePref,
+    refresh: Duration,
 }
 
 impl RootView {
-    pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: Entity<AppState>,
+        launch: Launch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mode = state.read(cx).mode;
         let table = cx.new(|cx| {
             TableState::new(BoardTableDelegate::new(mode), window, cx)
@@ -32,9 +51,38 @@ impl RootView {
                 .row_selectable(true)
         });
 
+        let repo_select = (launch.repos.len() > 1).then(|| {
+            let current = state.read(cx).repo.clone();
+            let selected = launch
+                .repos
+                .iter()
+                .position(|r| *r == current)
+                .map(IndexPath::new);
+            let select = cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(launch.repos.clone()),
+                    selected,
+                    window,
+                    cx,
+                )
+            });
+            cx.subscribe(
+                &select,
+                |this: &mut Self, _, event: &SelectEvent<SearchableVec<String>>, cx| {
+                    let SelectEvent::Confirm(Some(repo)) = event else {
+                        return;
+                    };
+                    let repo = repo.clone();
+                    this.state.update(cx, |s, cx| s.switch_repo(repo, cx));
+                },
+            )
+            .detach();
+            select
+        });
+
         // Theme: apply the configured preference, and while in System mode
         // follow macOS appearance changes live.
-        let theme_pref = ThemePref::from_env();
+        let theme_pref = launch.theme;
         theme_pref.apply(window, cx);
         let this_handle = cx.entity().downgrade();
         window
@@ -76,9 +124,11 @@ impl RootView {
         let this = Self {
             state,
             table,
+            repo_select,
             focus_handle: cx.focus_handle(),
             seen_generation: 0,
             theme_pref,
+            refresh: launch.refresh,
         };
         this.start_refresh_loop(cx);
         this
@@ -87,7 +137,7 @@ impl RootView {
     fn start_refresh_loop(&self, cx: &mut Context<Self>) {
         let state = self.state.clone();
         state.update(cx, |s, cx| s.refresh(cx));
-        let interval = refresh_interval();
+        let interval = self.refresh;
         cx.spawn(async move |_this, cx| {
             loop {
                 cx.background_executor().timer(interval).await;
@@ -182,12 +232,20 @@ impl RootView {
             .child(
                 h_flex()
                     .gap_3()
-                    .items_baseline()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::BOLD)
-                            .child(state.repo.clone()),
-                    )
+                    .items_center()
+                    .map(|this| match &self.repo_select {
+                        Some(select) => this.child(
+                            div()
+                                .min_w(px(220.))
+                                .font_weight(FontWeight::BOLD)
+                                .child(Select::new(select).small().menu_width(px(320.))),
+                        ),
+                        None => this.child(
+                            div()
+                                .font_weight(FontWeight::BOLD)
+                                .child(state.repo.clone()),
+                        ),
+                    })
                     .child(
                         div()
                             .text_sm()

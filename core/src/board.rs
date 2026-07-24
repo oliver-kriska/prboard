@@ -150,6 +150,8 @@ pub struct BoardRow {
     pub draft: bool,
     pub category: Category,
     pub bug: bool,
+    /// All label names, GitHub order. `bug` stays a derived flag ("bug" ∈ labels).
+    pub labels: Vec<String>,
     pub ci: Ci,
     pub conflict: bool,
     pub review_decision: Option<String>,
@@ -190,7 +192,8 @@ pub fn derive_rows(
 }
 
 fn derive_row(pr: &RawPr, mode: Mode, repo: &str, me: &str, cfg: &BoardConfig) -> BoardRow {
-    let bug = pr.labels.nodes.iter().any(|l| l.name == "bug");
+    let labels: Vec<String> = pr.labels.nodes.iter().map(|l| l.name.clone()).collect();
+    let bug = labels.iter().any(|l| l == "bug");
     let unresolved = pr
         .review_threads
         .nodes
@@ -212,6 +215,7 @@ fn derive_row(pr: &RawPr, mode: Mode, repo: &str, me: &str, cfg: &BoardConfig) -
         draft: pr.is_draft,
         category: Category::Draft, // set below
         bug,
+        labels,
         ci,
         conflict,
         review_decision: pr.review_decision.clone(),
@@ -490,6 +494,20 @@ mod tests {
         assert_eq!(row.category, Category::Action);
         assert_eq!(row.review_state, ReviewState::None);
         assert_eq!(row.note, "⚠️ no reviewers — assign mkurkov + abs");
+    }
+
+    #[test]
+    fn labels_carry_through_and_bug_is_derived() {
+        let mut v = base(9);
+        v["labels"]["nodes"] = json!([
+            {"name": "bug"}, {"name": "backend"}, {"name": "P1"}
+        ]);
+        let row = derive_one(v, Mode::Authored);
+        assert_eq!(row.labels, vec!["bug", "backend", "P1"]);
+        assert!(row.bug);
+        let no_labels = derive_one(base(10), Mode::Authored);
+        assert!(no_labels.labels.is_empty());
+        assert!(!no_labels.bug);
     }
 
     #[test]

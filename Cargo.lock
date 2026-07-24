@@ -4170,9 +4170,12 @@ name = "prboard"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dirs 5.0.1",
  "gpui",
  "gpui-component",
  "prboard-core",
+ "serde",
+ "toml 0.8.23",
 ]
 
 [[package]]

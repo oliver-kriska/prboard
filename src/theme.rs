@@ -13,11 +13,14 @@ pub enum ThemePref {
 }
 
 impl ThemePref {
-    /// `PRBOARD_THEME` = system | light | dark (default: system).
-    pub fn from_env() -> Self {
-        match std::env::var("PRBOARD_THEME").as_deref() {
-            Ok("light") => ThemePref::Light,
-            Ok("dark") => ThemePref::Dark,
+    /// `PRBOARD_THEME` > config-file `theme` > system.
+    pub fn resolve(config_theme: Option<&str>) -> Self {
+        let pref = std::env::var("PRBOARD_THEME")
+            .ok()
+            .or_else(|| config_theme.map(str::to_string));
+        match pref.as_deref() {
+            Some("light") => ThemePref::Light,
+            Some("dark") => ThemePref::Dark,
             _ => ThemePref::System,
         }
     }

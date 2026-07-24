@@ -56,6 +56,21 @@ impl AppState {
         }
     }
 
+    /// Repo-picker switch: drop the old repo's rows immediately (stale rows
+    /// from another repo are worse than an empty table) and fetch the new one.
+    pub fn switch_repo(&mut self, repo: String, cx: &mut Context<Self>) {
+        if repo == self.repo {
+            return;
+        }
+        self.repo = repo;
+        self.rows.clear();
+        self.last_synced = None;
+        self.error = None;
+        self.generation += 1; // observers push the (empty) rows to the table
+        self.refresh(cx);
+        cx.notify();
+    }
+
     pub fn counts(&self) -> (usize, usize, usize) {
         use prboard_core::board::Category;
         let count = |c: Category| self.rows.iter().filter(|r| r.category == c).count();
@@ -163,12 +178,14 @@ pub fn relative(since: DateTime<Local>) -> String {
     }
 }
 
-/// Refresh interval from `PRBOARD_REFRESH_SECS`, clamped to the hard floor.
-pub fn refresh_interval() -> Duration {
+/// Refresh interval: `PRBOARD_REFRESH_SECS` > config file > default, always
+/// clamped to the hard floor.
+pub fn refresh_interval(config_secs: Option<u64>) -> Duration {
     use prboard_core::github::rate_limit::{DEFAULT_REFRESH_SECS, MIN_REFRESH_SECS};
     let secs = std::env::var("PRBOARD_REFRESH_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
+        .or(config_secs)
         .unwrap_or(DEFAULT_REFRESH_SECS)
         .max(MIN_REFRESH_SECS);
     Duration::from_secs(secs)
