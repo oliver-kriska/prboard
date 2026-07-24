@@ -341,7 +341,16 @@ impl Render for RootView {
                     .text_size(px(crate::design::TABLE_TEXT_PX))
                     .map(|this| {
                         if loaded {
-                            this.child(Table::new(&self.table).small().stripe(true))
+                            // bordered defaults to TRUE — at full bleed the
+                            // outer border + rounded corners fight the
+                            // window edge (spec §5: header border is the
+                            // only separator).
+                            this.child(
+                                Table::new(&self.table)
+                                    .small()
+                                    .stripe(true)
+                                    .bordered(false),
+                            )
                         } else {
                             this.child(
                                 h_flex()
