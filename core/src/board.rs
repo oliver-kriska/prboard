@@ -7,7 +7,7 @@ use regex::Regex;
 
 use crate::github::query::RawPr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mode {
     /// PRs the user authored — the outgoing queue.
     Authored,

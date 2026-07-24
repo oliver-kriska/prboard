@@ -2,6 +2,7 @@
 //! All GitHub work happens on the background executor; results hop back to
 //! the UI thread via `this.update`.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,7 +34,24 @@ pub struct AppState {
     /// Bumped on every repo/mode switch; an in-flight fetch from a previous
     /// epoch must not write its (now wrong-view) results.
     epoch: u64,
+    /// Last-seen rows per queue, so switching restores the previous view
+    /// instantly and refreshes in the background instead of flashing empty
+    /// (critique #1). Bounded by construction — one entry per `Mode` — but the
+    /// cap is explicit per the PRFlow bounded-everything guardrail.
+    cache: HashMap<Mode, CachedQueue>,
 }
+
+/// A queue's last-known rows and when they were fetched. Rate-limit budget is
+/// deliberately NOT cached: it is account-global, not per-queue, so restoring a
+/// stale budget could wrongly trip the back-off on a switch.
+struct CachedQueue {
+    rows: Vec<BoardRow>,
+    last_synced: Option<DateTime<Local>>,
+}
+
+/// One cache entry per queue; there are exactly two queues today. Kept explicit
+/// so the bound survives a third view (roadmap "All open PRs").
+const MAX_CACHED_QUEUES: usize = 2;
 
 impl AppState {
     pub fn new(
@@ -57,26 +75,66 @@ impl AppState {
             generation: 0,
             backoff_until: None,
             epoch: 0,
+            cache: HashMap::new(),
         }
+    }
+
+    /// Snapshot the active queue's rows before we leave it, so returning to it
+    /// restores instantly. Evicts the oldest-arbitrary entry if somehow over
+    /// the (currently unreachable) bound.
+    fn stash_current(&mut self) {
+        if self.cache.len() >= MAX_CACHED_QUEUES && !self.cache.contains_key(&self.mode) {
+            if let Some(&victim) = self.cache.keys().find(|k| **k != self.mode) {
+                self.cache.remove(&victim);
+            }
+        }
+        self.cache.insert(
+            self.mode,
+            CachedQueue {
+                rows: self.rows.clone(),
+                last_synced: self.last_synced,
+            },
+        );
     }
 
     /// Repo-picker switch: drop the old repo's rows immediately (stale rows
     /// from another repo are worse than an empty table) and fetch the new one.
+    /// Every cached queue belonged to the old repo, so the cache is dropped.
     pub fn switch_repo(&mut self, repo: String, cx: &mut Context<Self>) {
         if repo == self.repo {
             return;
         }
         self.repo = repo;
+        self.cache.clear();
         self.reset_and_refetch(cx);
     }
 
-    /// Select one of the two prototype dashboards.
+    /// Select one of the two prototype dashboards. The previous queue's rows
+    /// are stashed and the target queue is restored from cache immediately (if
+    /// seen before) so the table never flashes empty; a background refresh then
+    /// updates it in place (critique #1).
     pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
         if mode == self.mode {
             return;
         }
+        self.stash_current();
         self.mode = mode;
-        self.reset_and_refetch(cx);
+        self.epoch += 1; // any in-flight fetch is now for the wrong view
+        self.syncing = false; // don't let it dedup the refresh we start now
+        self.error = None;
+        match self.cache.get(&mode) {
+            Some(cached) => {
+                self.rows = cached.rows.clone();
+                self.last_synced = cached.last_synced;
+            }
+            None => {
+                self.rows.clear();
+                self.last_synced = None;
+            }
+        }
+        self.generation += 1; // observers push the restored (or empty) rows
+        self.refresh(cx); // background-update the queue we just switched to
+        cx.notify();
     }
 
     fn reset_and_refetch(&mut self, cx: &mut Context<Self>) {

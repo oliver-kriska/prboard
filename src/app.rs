@@ -1,8 +1,10 @@
 //! Root view: header (repo, counts, sync + rate-limit status) over the board
 //! table, the auto-refresh loop, and the keyboard/mouse actions.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
+use chrono::{DateTime, Local};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     div, px, App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
@@ -45,6 +47,15 @@ pub struct RootView {
     seen_generation: u64,
     theme_pref: ThemePref,
     refresh: Duration,
+    /// Last selected display-row per queue, restored on switch-back so a queue
+    /// keeps its place (critique #1). Bounded by the number of modes.
+    selections: HashMap<Mode, usize>,
+    /// Set on a mode switch and consumed by the generation observer once the
+    /// switched rows land, so selection restore happens after the rows exist.
+    pending_restore: Option<Mode>,
+    /// Last real (non-header) selected row, so header bounces know which way
+    /// the caret was travelling.
+    last_selected: usize,
 }
 
 impl RootView {
@@ -110,24 +121,43 @@ impl RootView {
 
         // Push new rows into the table only when a fetch actually landed —
         // gate the observer on generation (the PRFlow infinite-observer trap).
+        // On a mode switch, restore that queue's remembered selection + scroll
+        // once its rows are in place; on a plain refresh, keep the current
+        // selection but clamp it if the row count shrank.
         cx.observe(&state, |this: &mut Self, state, cx| {
             let generation = state.read(cx).generation;
             if generation != this.seen_generation {
                 this.seen_generation = generation;
                 let rows = state.read(cx).rows.clone();
+                let restore = this
+                    .pending_restore
+                    .take()
+                    .and_then(|m| this.selections.get(&m).copied());
                 this.table.update(cx, |table, cx| {
                     table.delegate_mut().set_rows(rows);
                     table.refresh(cx);
+                    let len = table.delegate().display_len();
+                    match restore {
+                        Some(sel) if sel < len && !table.delegate().is_header(sel) => {
+                            table.set_selected_row(sel, cx);
+                            table.scroll_to_row(sel, cx);
+                        }
+                        _ => {
+                            if table.selected_row().is_some_and(|s| s >= len) {
+                                table.clear_selection(cx);
+                            }
+                        }
+                    }
                 });
             }
             cx.notify();
         })
         .detach();
 
-        cx.subscribe(&table, |this, _table, event: &TableEvent, cx| {
-            if let TableEvent::DoubleClickedRow(row_ix) = event {
-                this.open_row(*row_ix, cx);
-            }
+        cx.subscribe(&table, |this, _table, event: &TableEvent, cx| match event {
+            TableEvent::DoubleClickedRow(row_ix) => this.open_row(*row_ix, cx),
+            TableEvent::SelectRow(row_ix) => this.on_select_row(*row_ix, cx),
+            _ => {}
         })
         .detach();
 
@@ -164,6 +194,9 @@ impl RootView {
             seen_generation: 0,
             theme_pref,
             refresh: launch.refresh,
+            selections: HashMap::new(),
+            pending_restore: None,
+            last_selected: 0,
         };
         this.start_refresh_loop(cx);
         this
@@ -198,11 +231,18 @@ impl RootView {
     }
 
     /// Switch the visible queue from either mouse or keyboard, keeping the
-    /// data query, column set, and persisted preference in lockstep.
+    /// data query, column set, and persisted preference in lockstep. The
+    /// outgoing queue's selection is remembered and the incoming queue's is
+    /// restored by the generation observer once its rows land.
     fn select_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
-        if self.state.read(cx).mode == mode {
+        let current = self.state.read(cx).mode;
+        if current == mode {
             return;
         }
+        if let Some(sel) = self.table.read(cx).selected_row() {
+            self.selections.insert(current, sel);
+        }
+        self.pending_restore = Some(mode);
         self.state.update(cx, |s, cx| s.set_mode(mode, cx));
         self.table.update(cx, |table, cx| {
             table.delegate_mut().set_mode(mode);
@@ -215,6 +255,31 @@ impl RootView {
                 Mode::Review => "review",
             },
         );
+    }
+
+    /// Keep keyboard/mouse selection off the section-header pseudo-rows: when a
+    /// header gets selected, bounce to the nearest PR in the direction of
+    /// travel (`set_selected_row` re-emits `SelectRow`, but the bounced-to row
+    /// is a real PR, so it settles in one hop).
+    fn on_select_row(&mut self, row_ix: usize, cx: &mut Context<Self>) {
+        let delegate_is_header =
+            |i: usize, this: &Self, cx: &Context<Self>| this.table.read(cx).delegate().is_header(i);
+        if !delegate_is_header(row_ix, self, cx) {
+            self.last_selected = row_ix;
+            return;
+        }
+        let len = self.table.read(cx).delegate().display_len();
+        let going_down = row_ix >= self.last_selected;
+        let down = (row_ix + 1..len).find(|&i| !delegate_is_header(i, self, cx));
+        let up = (0..row_ix)
+            .rev()
+            .find(|&i| !delegate_is_header(i, self, cx));
+        let target = if going_down { down.or(up) } else { up.or(down) };
+        if let Some(t) = target {
+            self.last_selected = t;
+            self.table
+                .update(cx, |table, cx| table.set_selected_row(t, cx));
+        }
     }
 
     fn handle_key_down(
@@ -276,15 +341,10 @@ impl RootView {
             ),
         };
         // Static text only — a spinner animation would defeat the idle-GPU
-        // half of the spike gate (zed#55949).
-        let sync = if state.syncing {
-            "syncing…".to_string()
-        } else {
-            match state.last_synced {
-                Some(t) => format!("synced {}", relative(t)),
-                None => "loading…".to_string(),
-            }
-        };
+        // half of the spike gate (zed#55949). Copy is queue-specific and keeps
+        // the "synced Xm ago" anchor visible while a background refresh runs,
+        // so the control reads as navigation, not a re-run (critique #6/#1).
+        let sync = queue_sync_text(state.mode, state.syncing, state.last_synced);
         let budget = state
             .rate
             .as_ref()
@@ -420,6 +480,35 @@ impl RootView {
     }
 }
 
+/// The header's right-side status line, specific to the active queue. Keeps
+/// the "synced Xm ago" anchor visible during a background refresh so switching
+/// feels like navigation, not a command re-run.
+fn queue_sync_text(mode: Mode, syncing: bool, last_synced: Option<DateTime<Local>>) -> String {
+    let loading = match mode {
+        Mode::Authored => "Loading your open PRs…",
+        Mode::Review => "Loading requested reviews…",
+    };
+    match (syncing, last_synced) {
+        (true, None) | (false, None) => loading.to_string(),
+        (true, Some(t)) => {
+            let verb = match mode {
+                Mode::Authored => "Updating your PRs…",
+                Mode::Review => "Updating review requests…",
+            };
+            format!("{verb} · synced {}", relative(t))
+        }
+        (false, Some(t)) => format!("synced {}", relative(t)),
+    }
+}
+
+/// The centered body copy shown before a queue's first rows ever arrive.
+fn queue_loading_text(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Authored => "Loading your open PRs…",
+        Mode::Review => "Loading requested reviews…",
+    }
+}
+
 impl Focusable for RootView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -430,6 +519,7 @@ impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let loaded = self.state.read(cx).generation > 0;
+        let loading_text = queue_loading_text(self.state.read(cx).mode);
 
         v_flex()
             .size_full()
@@ -458,7 +548,7 @@ impl Render for RootView {
                                     .size_full()
                                     .justify_center()
                                     .text_color(theme.muted_foreground)
-                                    .child("Loading board…"),
+                                    .child(loading_text),
                             )
                         }
                     }),

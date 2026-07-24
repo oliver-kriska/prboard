@@ -2,6 +2,12 @@
 //! gpui-component's virtualized `Table`. Cells render the same glyph language
 //! as the prototype's markdown dashboard (SKILL.md).
 //!
+//! Rows are grouped by category with a section-header row before each band
+//! ("Needs action (14)"). Because published gpui-component 0.5.1 renders every
+//! cell inside a fixed-width `overflow_hidden` box, a full-width header label
+//! cannot live in a cell — it is drawn as an absolute overlay from `render_tr`
+//! (the row container is NOT clipped) while that row's cells render empty.
+//!
 //! Nothing here may animate: the table sits idle between refreshes and any
 //! continuous animation would defeat the idle-GPU half of the spike gate.
 
@@ -17,53 +23,65 @@ use prboard_core::board::{BoardRow, Category, Ci, Mode};
 
 use crate::design::{CHIP_HEIGHT, CHIP_PAD_X, CHIP_RADIUS, STATUS_DOT};
 
+/// One rendered line of the table: either a category section header or a PR
+/// (an index into `rows`). Headers are pseudo-rows — `row()` returns `None`
+/// for them, and keyboard selection bounces off them (see `app.rs`).
+enum DisplayRow {
+    Header { label: &'static str, count: usize },
+    Pr(usize),
+}
+
 pub struct BoardTableDelegate {
     rows: Vec<BoardRow>,
+    display: Vec<DisplayRow>,
     columns: Vec<Column>,
+    mode: Mode,
 }
 
 impl BoardTableDelegate {
     pub fn new(mode: Mode) -> Self {
         Self {
             rows: Vec::new(),
+            display: Vec::new(),
             columns: Self::columns_for(mode),
+            mode,
         }
     }
 
-    /// Rebuild the column set on an in-app mode switch (rows arrive with the
-    /// switched fetch via the generation observer).
+    /// Rebuild the column set AND the section grouping on an in-app mode switch
+    /// (rows arrive with the switched fetch via the generation observer).
     pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
         self.columns = Self::columns_for(mode);
+        self.rebuild_display();
     }
 
     fn columns_for(mode: Mode) -> Vec<Column> {
-        // Column sets mirror the prototype dashboard's two tables (SKILL.md).
+        // Human scanning order (critique #3): identity first (PR + draft
+        // badge), then WHAT it is (Title), then health (CI), then who/what is
+        // blocking, then Labels, then the Note. The always-"ready" Status
+        // column is gone — draft is a compact badge in the PR cell instead.
+        // Note stays last and widest: it is the product (visual-design doc),
+        // and Title degrades gracefully where the Note must not. The width
+        // sum fits the default 1440px window.
         match mode {
-            // The Note is the highest-value column — it wins width over
-            // Title; both carry hover tooltips with the full text, and every
-            // column is drag-resizable.
-            // Width follows information density (critique #6), and the SUM
-            // must fit the default 1440px window — Note is the product and
-            // must never be clipped by the viewport at default size. Note
-            // gets layout priority over Title (Title degrades gracefully,
-            // Note doesn't); CI 72 so "● running" fits.
             Mode::Authored => vec![
-                Column::new("pr", "PR").width(px(76.)),
-                Column::new("status", "Status").width(px(56.)),
-                Column::new("labels", "Labels").width(px(96.)),
+                // 100px fits "#NNNNN" plus the draft badge without clipping.
+                Column::new("pr", "PR").width(px(100.)),
+                Column::new("title", "Title").width(px(392.)),
                 Column::new("ci", "CI").width(px(72.)),
                 Column::new("requested", "Requested").width(px(140.)),
                 Column::new("reviewed", "Reviewed by").width(px(150.)),
-                Column::new("title", "Title").width(px(400.)),
+                Column::new("labels", "Labels").width(px(96.)),
                 Column::new("note", "Note").width(px(440.)),
             ],
             Mode::Review => vec![
-                Column::new("pr", "PR").width(px(76.)),
-                Column::new("author", "Author").width(px(120.)),
+                Column::new("pr", "PR").width(px(100.)),
+                Column::new("title", "Title").width(px(516.)),
                 Column::new("ci", "CI").width(px(72.)),
-                Column::new("labels", "Labels").width(px(96.)),
+                Column::new("author", "Author").width(px(120.)),
                 Column::new("unresolved", "Unres").width(px(56.)),
-                Column::new("title", "Title").width(px(520.)),
+                Column::new("labels", "Labels").width(px(96.)),
                 Column::new("note", "Note").width(px(440.)),
             ],
         }
@@ -71,10 +89,64 @@ impl BoardTableDelegate {
 
     pub fn set_rows(&mut self, rows: Vec<BoardRow>) {
         self.rows = rows;
+        self.rebuild_display();
     }
 
-    pub fn row(&self, ix: usize) -> Option<&BoardRow> {
-        self.rows.get(ix)
+    /// Interleave a section header before each contiguous category band. Rows
+    /// arrive already sorted by category rank (core `derive_rows`), so a band
+    /// is just a run of equal categories.
+    fn rebuild_display(&mut self) {
+        let mut display = Vec::with_capacity(self.rows.len() + 3);
+        let mut i = 0;
+        while i < self.rows.len() {
+            let cat = self.rows[i].category;
+            let start = i;
+            while i < self.rows.len() && self.rows[i].category == cat {
+                i += 1;
+            }
+            display.push(DisplayRow::Header {
+                label: group_label(self.mode, cat),
+                count: i - start,
+            });
+            for j in start..i {
+                display.push(DisplayRow::Pr(j));
+            }
+        }
+        self.display = display;
+    }
+
+    /// The `BoardRow` at a display index, or `None` if it is a section header.
+    pub fn row(&self, display_ix: usize) -> Option<&BoardRow> {
+        match self.display.get(display_ix)? {
+            DisplayRow::Pr(i) => self.rows.get(*i),
+            DisplayRow::Header { .. } => None,
+        }
+    }
+
+    /// True when the display index is a non-selectable section header.
+    pub fn is_header(&self, display_ix: usize) -> bool {
+        matches!(
+            self.display.get(display_ix),
+            Some(DisplayRow::Header { .. })
+        )
+    }
+
+    pub fn display_len(&self) -> usize {
+        self.display.len()
+    }
+}
+
+/// The section label for a category within a mode. Action/Await differ from
+/// Todo/Done even though they share a sort rank.
+fn group_label(mode: Mode, cat: Category) -> &'static str {
+    match (mode, cat) {
+        (Mode::Authored, Category::Action) => "Needs action",
+        (Mode::Authored, Category::Await) => "Awaiting review",
+        (Mode::Review, Category::Todo) => "Needs review",
+        (Mode::Review, Category::Done) => "Reviewed",
+        (_, Category::Draft) => "Drafts",
+        // Unreachable pairings (Action in Review etc.) — a calm fallback.
+        _ => "Other",
     }
 }
 
@@ -130,7 +202,7 @@ impl TableDelegate for BoardTableDelegate {
     }
 
     fn rows_count(&self, _cx: &App) -> usize {
-        self.rows.len()
+        self.display.len()
     }
 
     fn column(&self, col_ix: usize, _cx: &App) -> &Column {
@@ -144,22 +216,56 @@ impl TableDelegate for BoardTableDelegate {
         cx: &mut Context<TableState<Self>>,
     ) -> Stateful<Div> {
         let tr = div().id(("board-row", row_ix));
-        match self.rows.get(row_ix).map(|r| r.category) {
-            // A whisper of a tint keeps "needs me" rows findable at a glance;
-            // the red note dot does the pointing, position does the sorting.
-            // Perceptual loudness, not numeric alpha, must match across
-            // modes: 4% over white reads salmon, over near-black it vanishes.
-            Some(Category::Action | Category::Todo) => {
-                let a = if cx.theme().mode.is_dark() {
-                    0.05
-                } else {
-                    0.02
-                };
-                tr.bg(cx.theme().danger.opacity(a))
-            }
-            // Drafts are dimmed (inactive), not tinted (different) — see the
-            // per-cell text colors.
-            _ => tr,
+        let theme = cx.theme();
+        match self.display.get(row_ix) {
+            // Section header: a subtle band with a stronger top rule, and the
+            // label drawn as an absolute overlay (cells render empty on this
+            // row so nothing paints over it — see the module note).
+            Some(DisplayRow::Header { label, count }) => tr
+                .relative()
+                .bg(theme
+                    .secondary
+                    .opacity(if theme.mode.is_dark() { 0.5 } else { 0.7 }))
+                .border_t_1()
+                .border_color(theme.border)
+                .child(
+                    h_flex()
+                        .absolute()
+                        .left(px(crate::design::HEADER_PAD_X))
+                        .top_0()
+                        .bottom_0()
+                        .items_center()
+                        .gap_1p5()
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme.secondary_foreground)
+                                .child(label.to_uppercase()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(theme.muted_foreground)
+                                .child(count.to_string()),
+                        ),
+                ),
+            Some(DisplayRow::Pr(i)) => match self.rows.get(*i).map(|r| r.category) {
+                // A whisper of a tint keeps "needs me" rows findable at a
+                // glance; the red note dot does the pointing, position does the
+                // sorting. Perceptual loudness, not numeric alpha, must match
+                // across modes: 4% over white reads salmon, over near-black it
+                // vanishes.
+                Some(Category::Action | Category::Todo) => {
+                    let a = if theme.mode.is_dark() { 0.05 } else { 0.02 };
+                    tr.bg(theme.danger.opacity(a))
+                }
+                // Drafts are dimmed (inactive), not tinted (different) — see
+                // the per-cell text colors.
+                _ => tr,
+            },
+            None => tr,
         }
     }
 
@@ -170,8 +276,14 @@ impl TableDelegate for BoardTableDelegate {
         _window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        let Some(row) = self.rows.get(row_ix) else {
-            return div().into_any_element();
+        // Header rows carry no cell content — the label is an overlay from
+        // render_tr; empty (transparent) cells let it show through.
+        let row = match self.display.get(row_ix) {
+            Some(DisplayRow::Pr(i)) => match self.rows.get(*i) {
+                Some(r) => r,
+                None => return div().into_any_element(),
+            },
+            _ => return div().into_any_element(),
         };
         let theme = cx.theme();
         let muted = theme.muted_foreground;
@@ -179,16 +291,34 @@ impl TableDelegate for BoardTableDelegate {
         let dim = row.draft;
 
         let cell = match self.columns[col_ix].key.as_ref() {
-            "pr" => div()
-                .text_color(if dim { muted } else { theme.link })
-                .child(format!("#{}", row.number)),
-            "status" => {
-                // "ready" is the expected state ×26 — it recedes like "pass".
+            "pr" => {
+                // Single-click link (critique #5): the blue #number opens the
+                // PR. A compact "draft" badge replaces the old always-"ready"
+                // Status column.
+                let url = row.url.clone();
+                let number = h_flex()
+                    .id(("pr-link", row_ix))
+                    .cursor_pointer()
+                    .text_color(if dim { muted } else { theme.link })
+                    .hover(|this| this.underline())
+                    .child(format!("#{}", row.number))
+                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)));
+                let mut cell = h_flex().gap_1().items_center().child(number);
                 if row.draft {
-                    div().text_color(muted).child("draft")
-                } else {
-                    div().text_color(muted).child("ready")
+                    cell = cell.child(
+                        div()
+                            .px(px(4.))
+                            .rounded(px(CHIP_RADIUS))
+                            .bg(theme.muted)
+                            .border_1()
+                            .border_color(theme.border)
+                            .text_size(px(10.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(muted)
+                            .child("draft"),
+                    );
                 }
+                return cell.into_any_element();
             }
             "labels" => {
                 if row.labels.is_empty() {
@@ -332,8 +462,30 @@ impl TableDelegate for BoardTableDelegate {
                 let tag_color = if dim { muted } else { theme.accent_foreground };
                 // Ellipsis, not a mid-word clip — it's the affordance that
                 // says "there's more, hover" (critique #3).
-                let inner = match &row.issue {
-                    Some(issue) => h_flex()
+                let inner = match (&row.issue, &row.issue_url) {
+                    // A linked issue is a single-click link of its own
+                    // (critique #5): the tag opens the tracker, not the PR.
+                    (Some(issue), Some(issue_url)) => {
+                        let issue_url = issue_url.clone();
+                        h_flex()
+                            .gap_1()
+                            .overflow_hidden()
+                            .when(dim, |t| t.text_color(muted))
+                            .child(
+                                h_flex()
+                                    .id(("issue-link", row_ix))
+                                    .flex_shrink_0()
+                                    .cursor_pointer()
+                                    .text_color(if dim { muted } else { theme.link })
+                                    .hover(|this| this.underline())
+                                    .child(issue.clone())
+                                    .on_click(
+                                        cx.listener(move |_, _, _, cx| cx.open_url(&issue_url)),
+                                    ),
+                            )
+                            .child(div().min_w_0().truncate().child(row.title.clone()))
+                    }
+                    (Some(issue), None) => h_flex()
                         .gap_1()
                         .overflow_hidden()
                         .when(dim, |t| t.text_color(muted))
@@ -344,10 +496,12 @@ impl TableDelegate for BoardTableDelegate {
                                 .child(issue.clone()),
                         )
                         .child(div().min_w_0().truncate().child(row.title.clone())),
-                    None => div()
-                        .truncate()
-                        .when(dim, |t| t.text_color(muted))
-                        .child(row.title.clone()),
+                    (None, _) => h_flex().overflow_hidden().child(
+                        div()
+                            .truncate()
+                            .when(dim, |t| t.text_color(muted))
+                            .child(row.title.clone()),
+                    ),
                 };
                 return inner
                     .id(("title", row_ix))
@@ -426,12 +580,18 @@ impl TableDelegate for BoardTableDelegate {
         _window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        // Text only — the default empty view pulls an SVG icon from an asset
+        // Queue-specific empty copy (critique #6): each scope says its own
+        // "nothing here" so an empty Review queue never reads as no authored
+        // PRs. Text only — the default empty view pulls an SVG from an asset
         // bundle this app does not ship.
+        let msg = match self.mode {
+            Mode::Authored => "You have no open PRs",
+            Mode::Review => "Nothing is waiting for your review",
+        };
         h_flex()
             .size_full()
             .justify_center()
             .text_color(cx.theme().muted_foreground)
-            .child("No open PRs — nothing needs you")
+            .child(msg)
     }
 }
