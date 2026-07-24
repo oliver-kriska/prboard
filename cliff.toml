@@ -49,6 +49,8 @@ sort_commits = "newest"
 # stripped by `striptags` in the template above.
 commit_parsers = [
   { message = "^Merge ", skip = true },
+  # The release-bump commit itself is noise in the next cycle's changelog.
+  { message = "^chore\\(release\\)", skip = true },
   { message = "^feat", group = "<!-- 0 -->🚀 Features" },
   { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
   { message = "^perf", group = "<!-- 2 -->⚡ Performance" },
