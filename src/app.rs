@@ -221,54 +221,98 @@ impl RootView {
             .as_ref()
             .map(|r| format!("API {}/{}", r.remaining, r.limit));
 
-        v_flex()
+        // One-line header (spec §6): identity + counts left, status right.
+        // An error replaces the sync text — it IS the sync status then.
+        h_flex()
             .flex_shrink_0()
-            .px_4()
-            .py_2()
-            .gap_1()
+            .px(px(crate::design::HEADER_PAD_X))
+            .py(px(crate::design::HEADER_PAD_Y))
+            .gap_3()
+            .items_center()
             .bg(theme.title_bar)
             .border_b_1()
-            .border_color(theme.border)
+            .border_color(theme.title_bar_border)
+            .map(|this| match &self.repo_select {
+                Some(select) => this.child(
+                    div()
+                        .min_w(px(200.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(Select::new(select).small().menu_width(px(320.))),
+                ),
+                None => this.child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(state.repo.clone()),
+                ),
+            })
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .text_color(theme.muted_foreground)
+                    .child(counts),
+            )
+            .child(div().flex_1())
             .child(
                 h_flex()
                     .gap_3()
-                    .items_center()
-                    .map(|this| match &self.repo_select {
-                        Some(select) => this.child(
-                            div()
-                                .min_w(px(220.))
-                                .font_weight(FontWeight::BOLD)
-                                .child(Select::new(select).small().menu_width(px(320.))),
-                        ),
-                        None => this.child(
-                            div()
-                                .font_weight(FontWeight::BOLD)
-                                .child(state.repo.clone()),
-                        ),
+                    .text_size(px(12.))
+                    .text_color(theme.muted_foreground)
+                    .map(|this| match state.error.clone() {
+                        Some(err) => this.child(div().text_color(theme.danger).child(err)),
+                        None => this.child(sync),
                     })
+                    .when_some(budget, |this, b| this.child(b)),
+            )
+    }
+
+    fn render_footer(&self, cx: &Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let theme_label = format!("theme ({})", self.theme_pref.label());
+        let hints: Vec<(&str, String)> = vec![
+            ("↑↓", "select".into()),
+            ("⏎", "open".into()),
+            ("y", "copy".into()),
+            ("r", "refresh".into()),
+            ("t", theme_label),
+            ("q", "quit".into()),
+        ];
+        // Keycap legend (spec §6): reference material lives at the bottom,
+        // status at the top — the gh-dash/native pattern.
+        let mut bar = h_flex()
+            .flex_shrink_0()
+            .px(px(crate::design::HEADER_PAD_X))
+            .py(px(crate::design::FOOTER_PAD_Y))
+            .gap_3()
+            .items_center()
+            .bg(theme.title_bar)
+            .border_t_1()
+            .border_color(theme.title_bar_border);
+        for (key, label) in hints {
+            bar = bar.child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
                     .child(
                         div()
-                            .text_sm()
+                            .px_1()
+                            .rounded(px(3.))
+                            .bg(theme.muted)
+                            .border_1()
+                            .border_color(theme.border)
+                            .text_size(px(11.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme.secondary_foreground)
+                            .child(key),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
                             .text_color(theme.muted_foreground)
-                            .child(counts),
+                            .child(label),
                     ),
-            )
-            .child(
-                h_flex()
-                    .gap_3()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(sync)
-                    .when_some(budget, |this, b| this.child(b))
-                    .when_some(state.error.clone(), |this, err| {
-                        this.child(div().text_color(theme.danger).child(err))
-                    })
-                    .child(div().flex_1())
-                    .child(format!(
-                        "↑↓ select · ⏎ open · y copy · r refresh · t theme ({}) · q quit",
-                        self.theme_pref.label()
-                    )),
-            )
+            );
+        }
+        bar
     }
 }
 
@@ -290,18 +334,27 @@ impl Render for RootView {
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::handle_key_down))
             .child(self.render_header(cx))
-            .child(div().flex_1().min_h_0().p_2().map(|this| {
-                if loaded {
-                    this.child(Table::new(&self.table).stripe(true).bordered(true))
-                } else {
-                    this.child(
-                        h_flex()
-                            .size_full()
-                            .justify_center()
-                            .text_color(theme.muted_foreground)
-                            .child("Loading board…"),
-                    )
-                }
-            }))
+            // Full-bleed table (spec §5): the window IS the table; 13 px
+            // cells at Size::Small density.
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .text_size(px(crate::design::TABLE_TEXT_PX))
+                    .map(|this| {
+                        if loaded {
+                            this.child(Table::new(&self.table).small().stripe(true))
+                        } else {
+                            this.child(
+                                h_flex()
+                                    .size_full()
+                                    .justify_center()
+                                    .text_color(theme.muted_foreground)
+                                    .child("Loading board…"),
+                            )
+                        }
+                    }),
+            )
+            .child(self.render_footer(cx))
     }
 }

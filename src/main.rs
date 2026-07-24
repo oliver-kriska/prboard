@@ -4,6 +4,7 @@
 mod app;
 mod assets;
 mod config;
+mod design;
 mod state;
 mod table;
 mod theme;

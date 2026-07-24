@@ -48,5 +48,8 @@ impl ThemePref {
             ThemePref::Light => Theme::change(ThemeMode::Light, Some(window), cx),
             ThemePref::Dark => Theme::change(ThemeMode::Dark, Some(window), cx),
         }
+        // Every change/sync above resets colors to the built-in palette;
+        // re-apply prboard's own tokens on top.
+        crate::design::refine_theme(cx);
     }
 }

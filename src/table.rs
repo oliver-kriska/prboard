@@ -7,13 +7,15 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Stateful,
-    StatefulInteractiveElement, Styled, Window,
+    div, px, App, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use gpui_component::table::{Column, TableDelegate, TableState};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, ActiveTheme};
 use prboard_core::board::{BoardRow, Category, Ci, Mode};
+
+use crate::design::{CHIP_HEIGHT, CHIP_PAD_X, CHIP_RADIUS, STATUS_DOT};
 
 pub struct BoardTableDelegate {
     rows: Vec<BoardRow>,
@@ -34,8 +36,8 @@ impl BoardTableDelegate {
                 Column::new("ci", "CI").width(px(64.)),
                 Column::new("requested", "Requested").width(px(140.)),
                 Column::new("reviewed", "Reviewed by").width(px(170.)),
-                Column::new("title", "Title").width(px(360.)),
-                Column::new("note", "Note").width(px(460.)),
+                Column::new("title", "Title").width(px(420.)),
+                Column::new("note", "Note").width(px(400.)),
             ],
             Mode::Review => vec![
                 Column::new("pr", "PR").width(px(76.)),
@@ -43,8 +45,8 @@ impl BoardTableDelegate {
                 Column::new("ci", "CI").width(px(64.)),
                 Column::new("labels", "Labels").width(px(120.)),
                 Column::new("unresolved", "Unres").width(px(56.)),
-                Column::new("title", "Title").width(px(380.)),
-                Column::new("note", "Note").width(px(460.)),
+                Column::new("title", "Title").width(px(440.)),
+                Column::new("note", "Note").width(px(400.)),
             ],
         };
         Self {
@@ -62,14 +64,38 @@ impl BoardTableDelegate {
     }
 }
 
-fn review_glyph(state: &str) -> &'static str {
+/// Calm reviewer-state glyph + its color token, per the design spec (§8).
+/// Rendered BEFORE the login: on truncation the glyph is the information.
+fn review_glyph(state: &str, theme: &gpui_component::theme::Theme) -> (&'static str, Hsla) {
     match state {
-        "APPROVED" => "✅",
-        "COMMENTED" => "💬",
-        "CHANGES_REQUESTED" => "✋",
-        "DISMISSED" => "🚫",
-        _ => "·",
+        "APPROVED" => ("✓", theme.success),
+        "COMMENTED" => ("·", theme.muted_foreground),
+        "CHANGES_REQUESTED" => ("±", theme.danger),
+        "DISMISSED" => ("–", theme.muted_foreground),
+        _ => ("·", theme.muted_foreground),
     }
+}
+
+/// Notes come from core with the prototype's emoji language (the SKILL spec);
+/// on this board a themed status dot carries that signal instead, so the
+/// emoji are presentation noise — strip them, never change them in core.
+fn strip_note_glyphs(note: &str) -> String {
+    const GLYPHS: &[&str] = &[
+        "⚠️ ", "🔴 ", "❌ ", "✋ ", "🟡 ", "🟢 ", "✅ ", "💬 ", "🔵 ",
+    ];
+    let mut s = note.to_string();
+    for g in GLYPHS {
+        s = s.replace(g, "");
+    }
+    s
+}
+
+fn status_dot(color: Hsla) -> Div {
+    div()
+        .size(px(STATUS_DOT))
+        .rounded_full()
+        .flex_shrink_0()
+        .bg(color)
 }
 
 fn review_state_word(state: &str) -> &'static str {
@@ -103,9 +129,11 @@ impl TableDelegate for BoardTableDelegate {
     ) -> Stateful<Div> {
         let tr = div().id(("board-row", row_ix));
         match self.rows.get(row_ix).map(|r| r.category) {
-            // A faint tint keeps "needs me" rows findable at a glance.
-            Some(Category::Action | Category::Todo) => tr.bg(cx.theme().danger.opacity(0.06)),
-            Some(Category::Draft) => tr.bg(cx.theme().muted.opacity(0.3)),
+            // A whisper of a tint keeps "needs me" rows findable at a glance;
+            // the red note dot does the pointing, position does the sorting.
+            Some(Category::Action | Category::Todo) => tr.bg(cx.theme().danger.opacity(0.04)),
+            // Drafts are dimmed (inactive), not tinted (different) — see the
+            // per-cell text colors.
             _ => tr,
         }
     }
@@ -122,14 +150,16 @@ impl TableDelegate for BoardTableDelegate {
         };
         let theme = cx.theme();
         let muted = theme.muted_foreground;
+        // Draft rows dim their text — inactive, not merely different.
+        let dim = row.draft;
 
         let cell = match self.columns[col_ix].key.as_ref() {
             "pr" => div()
-                .text_color(theme.link)
+                .text_color(if dim { muted } else { theme.link })
                 .child(format!("#{}", row.number)),
             "status" => {
                 if row.draft {
-                    div().text_color(muted).child("DRAFT")
+                    div().text_color(muted).child("draft")
                 } else {
                     div().child("ready")
                 }
@@ -145,32 +175,35 @@ impl TableDelegate for BoardTableDelegate {
                     // "bug" must never hide behind the +n overflow.
                     let mut ordered: Vec<String> = row.labels.clone();
                     ordered.sort_by_key(|l| l != "bug");
+                    // One neutral chip style (spec §7) — GitHub's arbitrary
+                    // label hues would out-shout the status system. 🐛 is the
+                    // single permitted emoji: semantic, not decorative.
+                    let chip_base = || {
+                        h_flex()
+                            .h(px(CHIP_HEIGHT))
+                            .px(px(CHIP_PAD_X))
+                            .items_center()
+                            .rounded(px(CHIP_RADIUS))
+                            .bg(theme.muted)
+                            .border_1()
+                            .border_color(theme.border)
+                            .text_size(px(11.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .whitespace_nowrap()
+                    };
                     let mut chips = h_flex().gap_1().overflow_hidden();
                     for label in ordered.iter().take(VISIBLE) {
-                        let is_bug = label == "bug";
-                        let label = label.clone();
-                        let chip = div()
-                            .px_1p5()
-                            .rounded_sm()
-                            .text_xs()
-                            .whitespace_nowrap()
-                            .map(|c| {
-                                if is_bug {
-                                    c.bg(theme.danger.opacity(0.12))
-                                        .text_color(theme.danger)
-                                        .child(format!("🐛 {label}"))
-                                } else {
-                                    c.bg(theme.muted.opacity(0.5))
-                                        .text_color(theme.muted_foreground)
-                                        .child(label.clone())
-                                }
-                            });
-                        chips = chips.child(chip);
+                        let text = if label == "bug" {
+                            format!("🐛 {label}")
+                        } else {
+                            label.clone()
+                        };
+                        chips = chips
+                            .child(chip_base().text_color(theme.secondary_foreground).child(text));
                     }
                     if row.labels.len() > VISIBLE {
                         chips = chips.child(
-                            div()
-                                .text_xs()
+                            chip_base()
                                 .text_color(muted)
                                 .child(format!("+{}", row.labels.len() - VISIBLE)),
                         );
@@ -181,11 +214,25 @@ impl TableDelegate for BoardTableDelegate {
                         .into_any_element();
                 }
             }
+            // The calm rule (spec §8): bad states get colored text, good
+            // states get only a colored dot with muted text.
             "ci" => match row.ci {
-                Ci::Pass => div().text_color(theme.success).child("✓ pass"),
-                Ci::Fail => div().text_color(theme.danger).child("✗ fail"),
-                Ci::Running => div().text_color(theme.warning).child("⏳"),
-                Ci::None => div().text_color(muted).child("—"),
+                Ci::Pass => h_flex()
+                    .gap_1p5()
+                    .items_center()
+                    .child(status_dot(theme.success))
+                    .child(div().text_color(muted).child("pass")),
+                Ci::Fail => h_flex()
+                    .gap_1p5()
+                    .items_center()
+                    .child(status_dot(theme.danger))
+                    .child(div().text_color(theme.danger).child("fail")),
+                Ci::Running => h_flex()
+                    .gap_1p5()
+                    .items_center()
+                    .child(status_dot(theme.warning))
+                    .child(div().text_color(muted).child("running")),
+                Ci::None => h_flex().child(div().text_color(muted).child("—")),
             },
             "author" => div().child(row.author.clone().unwrap_or_else(|| "?".into())),
             "unresolved" => {
@@ -212,19 +259,24 @@ impl TableDelegate for BoardTableDelegate {
                 } else {
                     // Glyph first: when the column truncates, the state glyph
                     // is the information — the login is recoverable from the
-                    // tooltip, the 🚫/✋ is not.
-                    let text = row
-                        .reviews
-                        .iter()
-                        .map(|r| {
-                            format!(
-                                "{} {}",
-                                review_glyph(&r.state),
-                                r.login.as_deref().unwrap_or("?"),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("  ");
+                    // tooltip, the ±/– is not.
+                    let mut cell = h_flex().gap_2().overflow_hidden();
+                    for r in &row.reviews {
+                        let (glyph, color) = review_glyph(&r.state, theme);
+                        cell = cell.child(
+                            h_flex()
+                                .gap_1()
+                                .items_center()
+                                .whitespace_nowrap()
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(color)
+                                        .child(glyph),
+                                )
+                                .child(r.login.clone().unwrap_or_else(|| "?".into())),
+                        );
+                    }
                     let full = row
                         .reviews
                         .iter()
@@ -237,10 +289,7 @@ impl TableDelegate for BoardTableDelegate {
                         })
                         .collect::<Vec<_>>()
                         .join(" · ");
-                    return div()
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .child(text)
+                    return cell
                         .id(("reviewed", row_ix))
                         .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
                         .into_any_element();
@@ -251,16 +300,16 @@ impl TableDelegate for BoardTableDelegate {
                     Some(issue) => format!("{issue} · {}", row.title),
                     None => row.title.clone(),
                 };
+                let tag_color = if dim { muted } else { theme.accent_foreground };
                 let inner = match &row.issue {
                     Some(issue) => h_flex()
                         .gap_1()
-                        .child(
-                            div()
-                                .text_color(theme.accent_foreground)
-                                .child(issue.clone()),
-                        )
+                        .when(dim, |t| t.text_color(muted))
+                        .child(div().text_color(tag_color).child(issue.clone()))
                         .child(row.title.clone()),
-                    None => div().child(row.title.clone()),
+                    None => div()
+                        .when(dim, |t| t.text_color(muted))
+                        .child(row.title.clone()),
                 };
                 return inner
                     .id(("title", row_ix))
@@ -268,15 +317,27 @@ impl TableDelegate for BoardTableDelegate {
                     .into_any_element();
             }
             "note" => {
-                let color = match row.category {
-                    Category::Action | Category::Todo => theme.danger,
-                    Category::Await | Category::Done => theme.success,
-                    Category::Draft => muted,
+                // Dot carries the state; text stays calm — colored only when
+                // the state needs action (spec §8).
+                let text = strip_note_glyphs(&row.note);
+                let full = text.clone();
+                let (dot, text_color) = match row.category {
+                    Category::Action | Category::Todo => (Some(theme.danger), theme.danger),
+                    Category::Await | Category::Done => (Some(theme.success), muted),
+                    Category::Draft => (None, muted),
                 };
-                let full = row.note.clone();
-                return div()
-                    .text_color(color)
-                    .child(row.note.clone())
+                let mut cell = h_flex().gap_1p5().items_center().overflow_hidden();
+                if let Some(color) = dot {
+                    cell = cell.child(status_dot(color));
+                }
+                return cell
+                    .child(
+                        div()
+                            .text_color(text_color)
+                            .whitespace_nowrap()
+                            .overflow_hidden()
+                            .child(text),
+                    )
                     .id(("note", row_ix))
                     .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
                     .into_any_element();
@@ -307,6 +368,6 @@ impl TableDelegate for BoardTableDelegate {
             .size_full()
             .justify_center()
             .text_color(cx.theme().muted_foreground)
-            .child("No open PRs — nothing needs you 🎉")
+            .child("No open PRs — nothing needs you")
     }
 }
