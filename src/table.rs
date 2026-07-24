@@ -42,23 +42,26 @@ impl BoardTableDelegate {
             // The Note is the highest-value column — it wins width over
             // Title; both carry hover tooltips with the full text, and every
             // column is drag-resizable.
+            // Width follows information density (critique #6): mostly-empty
+            // columns give back to Title, the one that truncates real info;
+            // CI 72 so "● running" fits.
             Mode::Authored => vec![
                 Column::new("pr", "PR").width(px(76.)),
-                Column::new("status", "Status").width(px(64.)),
-                Column::new("labels", "Labels").width(px(120.)),
-                Column::new("ci", "CI").width(px(64.)),
+                Column::new("status", "Status").width(px(56.)),
+                Column::new("labels", "Labels").width(px(96.)),
+                Column::new("ci", "CI").width(px(72.)),
                 Column::new("requested", "Requested").width(px(140.)),
-                Column::new("reviewed", "Reviewed by").width(px(170.)),
-                Column::new("title", "Title").width(px(420.)),
+                Column::new("reviewed", "Reviewed by").width(px(150.)),
+                Column::new("title", "Title").width(px(490.)),
                 Column::new("note", "Note").width(px(400.)),
             ],
             Mode::Review => vec![
                 Column::new("pr", "PR").width(px(76.)),
                 Column::new("author", "Author").width(px(120.)),
-                Column::new("ci", "CI").width(px(64.)),
-                Column::new("labels", "Labels").width(px(120.)),
+                Column::new("ci", "CI").width(px(72.)),
+                Column::new("labels", "Labels").width(px(96.)),
                 Column::new("unresolved", "Unres").width(px(56.)),
-                Column::new("title", "Title").width(px(440.)),
+                Column::new("title", "Title").width(px(470.)),
                 Column::new("note", "Note").width(px(400.)),
             ],
         }
@@ -140,7 +143,12 @@ impl TableDelegate for BoardTableDelegate {
         match self.rows.get(row_ix).map(|r| r.category) {
             // A whisper of a tint keeps "needs me" rows findable at a glance;
             // the red note dot does the pointing, position does the sorting.
-            Some(Category::Action | Category::Todo) => tr.bg(cx.theme().danger.opacity(0.04)),
+            // Perceptual loudness, not numeric alpha, must match across
+            // modes: 4% over white reads salmon, over near-black it vanishes.
+            Some(Category::Action | Category::Todo) => {
+                let a = if cx.theme().mode.is_dark() { 0.05 } else { 0.02 };
+                tr.bg(cx.theme().danger.opacity(a))
+            }
             // Drafts are dimmed (inactive), not tinted (different) — see the
             // per-cell text colors.
             _ => tr,
@@ -167,10 +175,11 @@ impl TableDelegate for BoardTableDelegate {
                 .text_color(if dim { muted } else { theme.link })
                 .child(format!("#{}", row.number)),
             "status" => {
+                // "ready" is the expected state ×26 — it recedes like "pass".
                 if row.draft {
                     div().text_color(muted).child("draft")
                 } else {
-                    div().child("ready")
+                    div().text_color(muted).child("ready")
                 }
             }
             "labels" => {
@@ -241,7 +250,7 @@ impl TableDelegate for BoardTableDelegate {
                     .items_center()
                     .child(status_dot(theme.warning))
                     .child(div().text_color(muted).child("running")),
-                Ci::None => h_flex().child(div().text_color(muted).child("—")),
+                Ci::None => h_flex().child(div().text_color(muted.opacity(0.5)).child("—")),
             },
             "author" => div().child(row.author.clone().unwrap_or_else(|| "?".into())),
             "unresolved" => {
@@ -250,7 +259,7 @@ impl TableDelegate for BoardTableDelegate {
                         .text_color(theme.warning)
                         .child(row.unresolved.to_string())
                 } else {
-                    div().text_color(muted).child("—")
+                    div().text_color(muted.opacity(0.5)).child("—")
                 }
             }
             "requested" => {
@@ -264,7 +273,7 @@ impl TableDelegate for BoardTableDelegate {
             }
             "reviewed" => {
                 if row.reviews.is_empty() {
-                    div().text_color(muted).child("—")
+                    div().text_color(muted.opacity(0.5)).child("—")
                 } else {
                     // Glyph first: when the column truncates, the state glyph
                     // is the information — the login is recoverable from the
@@ -310,13 +319,22 @@ impl TableDelegate for BoardTableDelegate {
                     None => row.title.clone(),
                 };
                 let tag_color = if dim { muted } else { theme.accent_foreground };
+                // Ellipsis, not a mid-word clip — it's the affordance that
+                // says "there's more, hover" (critique #3).
                 let inner = match &row.issue {
                     Some(issue) => h_flex()
                         .gap_1()
+                        .overflow_hidden()
                         .when(dim, |t| t.text_color(muted))
-                        .child(div().text_color(tag_color).child(issue.clone()))
-                        .child(row.title.clone()),
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_color(tag_color)
+                                .child(issue.clone()),
+                        )
+                        .child(div().min_w_0().truncate().child(row.title.clone())),
                     None => div()
+                        .truncate()
                         .when(dim, |t| t.text_color(muted))
                         .child(row.title.clone()),
                 };
@@ -335,18 +353,44 @@ impl TableDelegate for BoardTableDelegate {
                     Category::Await | Category::Done => (Some(theme.success), muted),
                     Category::Draft => (None, muted),
                 };
-                let mut cell = h_flex().gap_1p5().items_center().overflow_hidden();
+                // pr_2: the terminal column needs an optical margin the
+                // 6px cell pad doesn't give (critique #4).
+                let mut cell = h_flex().gap_1p5().items_center().overflow_hidden().pr_2();
                 if let Some(color) = dot {
                     cell = cell.child(status_dot(color));
                 }
+                // Two-tone action notes (critique #1): the problem clause in
+                // danger, the remedy after " — " muted — 14 identical red
+                // rows stop flattening into one red wall.
+                let action = matches!(row.category, Category::Action | Category::Todo);
+                match text.split_once(" — ").filter(|_| action) {
+                    Some((head, tail)) => {
+                        cell = cell
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_color(text_color)
+                                    .child(head.to_string()),
+                            )
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_color(muted)
+                                    .child(format!("— {tail}")),
+                            );
+                    }
+                    None => {
+                        cell = cell.child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(text_color)
+                                .child(text),
+                        );
+                    }
+                }
                 return cell
-                    .child(
-                        div()
-                            .text_color(text_color)
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .child(text),
-                    )
                     .id(("note", row_ix))
                     .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
                     .into_any_element();
