@@ -49,10 +49,12 @@ install_release_macos() {
   [ "$ARCH" = "arm64" ] || die "prebuilt releases are Apple-silicon only for now; use --from-source"
   DIR="${DIR:-$HOME/Applications}"
   say "Finding the latest release of $REPO"
-  URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+  # The list endpoint (newest first) rather than /releases/latest, which
+  # skips pre-releases — and early prboard releases are all pre-releases.
+  URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases?per_page=5" \
     | grep -o '"browser_download_url": *"[^"]*macos-arm64[^"]*\.tar\.gz"' \
     | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
-  [ -n "$URL" ] || die "no macos-arm64 asset found in the latest release; use --from-source"
+  [ -n "$URL" ] || die "no macos-arm64 release asset found; use --from-source"
   TMP=$(mktemp -d "${TMPDIR:-/tmp}/prboard-install.XXXXXX")
   trap 'rm -rf "$TMP"' EXIT
   say "Downloading ${URL##*/}"
