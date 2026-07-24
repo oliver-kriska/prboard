@@ -137,7 +137,9 @@ fn main() {
         cx.activate(true);
 
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(size(px(1280.), px(820.)), cx)),
+            // 1440 wide: the authored column set sums to ~1430 — at 1280 the
+            // Note column (the product) was clipped by the viewport edge.
+            window_bounds: Some(WindowBounds::centered(size(px(1440.), px(860.)), cx)),
             // Transparent native chrome: the app's own header row IS the
             // titlebar (traffic lights overlay it), like Zed/modern Mac apps.
             titlebar: Some(gpui_component::TitleBar::title_bar_options()),

@@ -42,9 +42,11 @@ impl BoardTableDelegate {
             // The Note is the highest-value column — it wins width over
             // Title; both carry hover tooltips with the full text, and every
             // column is drag-resizable.
-            // Width follows information density (critique #6): mostly-empty
-            // columns give back to Title, the one that truncates real info;
-            // CI 72 so "● running" fits.
+            // Width follows information density (critique #6), and the SUM
+            // must fit the default 1440px window — Note is the product and
+            // must never be clipped by the viewport at default size. Note
+            // gets layout priority over Title (Title degrades gracefully,
+            // Note doesn't); CI 72 so "● running" fits.
             Mode::Authored => vec![
                 Column::new("pr", "PR").width(px(76.)),
                 Column::new("status", "Status").width(px(56.)),
@@ -52,8 +54,8 @@ impl BoardTableDelegate {
                 Column::new("ci", "CI").width(px(72.)),
                 Column::new("requested", "Requested").width(px(140.)),
                 Column::new("reviewed", "Reviewed by").width(px(150.)),
-                Column::new("title", "Title").width(px(490.)),
-                Column::new("note", "Note").width(px(400.)),
+                Column::new("title", "Title").width(px(400.)),
+                Column::new("note", "Note").width(px(440.)),
             ],
             Mode::Review => vec![
                 Column::new("pr", "PR").width(px(76.)),
@@ -61,8 +63,8 @@ impl BoardTableDelegate {
                 Column::new("ci", "CI").width(px(72.)),
                 Column::new("labels", "Labels").width(px(96.)),
                 Column::new("unresolved", "Unres").width(px(56.)),
-                Column::new("title", "Title").width(px(470.)),
-                Column::new("note", "Note").width(px(400.)),
+                Column::new("title", "Title").width(px(520.)),
+                Column::new("note", "Note").width(px(440.)),
             ],
         }
     }
@@ -83,7 +85,9 @@ fn review_glyph(state: &str, theme: &gpui_component::theme::Theme) -> (&'static 
         "APPROVED" => ("✓", theme.success),
         "COMMENTED" => ("·", theme.muted_foreground),
         "CHANGES_REQUESTED" => ("±", theme.danger),
-        "DISMISSED" => ("–", theme.muted_foreground),
+        // ✕, not "–": a bare dash reads as "nothing" — dismissed is an
+        // invalidated review, which is information.
+        "DISMISSED" => ("✕", theme.muted_foreground),
         _ => ("·", theme.muted_foreground),
     }
 }
