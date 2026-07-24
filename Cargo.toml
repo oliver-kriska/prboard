@@ -17,7 +17,7 @@ gpui = "=0.2.2"
 gpui-component = "=0.5.1"
 chrono = "0.4"
 # Config file (Spotlight launches have no env vars / cwd).
-toml = "0.8"
+toml = "1.1"
 # In-place config updates that preserve the user's comments/formatting.
 toml_edit = "0.25"
 dirs = "5"
