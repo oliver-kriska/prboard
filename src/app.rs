@@ -8,16 +8,16 @@ use chrono::{DateTime, Local};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     div, px, App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
-    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window,
+    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Pixels, Render, Styled, Window,
 };
 use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
 use gpui_component::tab::{Tab, TabBar};
-use gpui_component::table::{Table, TableEvent, TableState};
+use gpui_component::table::{Column, Table, TableEvent, TableState};
 use gpui_component::{h_flex, v_flex, ActiveTheme, IndexPath, Sizable, TitleBar};
 use prboard_core::board::Mode;
 
 use crate::state::{relative, AppState};
-use crate::table::BoardTableDelegate;
+use crate::table::{columns_for, BoardTableDelegate, TableWidthClass};
 use crate::theme::ThemePref;
 
 /// Startup decisions resolved in `main` (CLI + env + config file).
@@ -59,6 +59,14 @@ pub struct RootView {
     /// Last real (non-header) selected row, so header bounces know which way
     /// the caret was travelling. Reset on any queue/repo switch.
     last_selected: usize,
+    /// The current responsive width bucket, updated on window resize.
+    width_class: TableWidthClass,
+    /// Last-seen viewport width (px), the basis for the elastic Title/Note split.
+    viewport_width: f32,
+    /// Manually-resized column widths, remembered per (queue, width class) so a
+    /// background refresh or a same-class window resize can't reset a layout the
+    /// user dragged. Bounded by construction: 2 modes × 3 classes = 6 entries.
+    col_overrides: HashMap<(Mode, TableWidthClass), Vec<Pixels>>,
 }
 
 impl RootView {
@@ -69,8 +77,14 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Self {
         let mode = state.read(cx).mode;
+        // Size the columns to the window the moment we open, so the first frame
+        // is already responsive (no default-width flash).
+        let initial_width: f32 = window.viewport_size().width.into();
+        let initial_class = TableWidthClass::from_width(initial_width);
         let table = cx.new(|cx| {
-            TableState::new(BoardTableDelegate::new(mode), window, cx)
+            let mut delegate = BoardTableDelegate::new(mode);
+            delegate.set_columns(columns_for(mode, initial_class, initial_width));
+            TableState::new(delegate, window, cx)
                 .sortable(false)
                 .col_movable(false)
                 .col_resizable(true)
@@ -178,9 +192,18 @@ impl RootView {
         cx.subscribe(&table, |this, _table, event: &TableEvent, cx| match event {
             TableEvent::DoubleClickedRow(row_ix) => this.open_row(*row_ix, cx),
             TableEvent::SelectRow(row_ix) => this.on_select_row(*row_ix, cx),
+            TableEvent::ColumnWidthsChanged(widths) => {
+                this.on_column_widths_changed(widths.clone(), cx)
+            }
             _ => {}
         })
         .detach();
+
+        // Rebuild columns when the window is resized (class change, or a
+        // material change in the elastic Title/Note widths). Event-driven — no
+        // timer, nothing animates.
+        cx.observe_window_bounds(window, |this, window, cx| this.relayout(window, cx))
+            .detach();
 
         // Arrow keys belong to the table's own key context.
         table.focus_handle(cx).focus(window);
@@ -218,6 +241,9 @@ impl RootView {
             selections: HashMap::new(),
             pending_restore: None,
             last_selected: 0,
+            width_class: initial_class,
+            viewport_width: initial_width,
+            col_overrides: HashMap::new(),
         };
         this.start_refresh_loop(cx);
         this
@@ -276,8 +302,13 @@ impl RootView {
         self.last_selected = 0;
         self.pending_restore = Some(mode);
         self.state.update(cx, |s, cx| s.set_mode(mode, cx));
+        // The delegate no longer owns column widths (they track the live window
+        // width); rebuild them here for the new queue, honoring any manual
+        // override stored for this (queue, width class).
+        let cols = self.columns_for_current(mode);
         self.table.update(cx, |table, cx| {
             table.delegate_mut().set_mode(mode);
+            table.delegate_mut().set_columns(cols);
             table.refresh(cx);
         });
         crate::config::persist_str(
@@ -287,6 +318,61 @@ impl RootView {
                 Mode::Review => "review",
             },
         );
+    }
+
+    /// The columns for `mode` at the current width class: a stored manual
+    /// override if one is present (and still matches the column count), else the
+    /// responsive default for this window width.
+    fn columns_for_current(&self, mode: Mode) -> Vec<Column> {
+        let mut cols = columns_for(mode, self.width_class, self.viewport_width);
+        if let Some(widths) = self.col_overrides.get(&(mode, self.width_class)) {
+            if widths.len() == cols.len() {
+                for (col, w) in cols.iter_mut().zip(widths) {
+                    col.width = *w;
+                }
+            }
+        }
+        cols
+    }
+
+    /// Recompute the responsive layout on a window resize. A manual layout is
+    /// respected while the width class is unchanged; crossing into a different
+    /// class applies that class's stored override or its responsive default. A
+    /// no-op rebuild (the quantized widths didn't move) is skipped so a resize
+    /// drag doesn't thrash the table.
+    fn relayout(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let width: f32 = window.viewport_size().width.into();
+        let new_class = TableWidthClass::from_width(width);
+        let class_changed = new_class != self.width_class;
+        self.width_class = new_class;
+        self.viewport_width = width;
+        let mode = self.state.read(cx).mode;
+        if !class_changed && self.col_overrides.contains_key(&(mode, new_class)) {
+            return; // manual layout stands within its width class
+        }
+        let cols = self.columns_for_current(mode);
+        let next_widths: Vec<Pixels> = cols.iter().map(|c| c.width).collect();
+        self.table.update(cx, |table, cx| {
+            if table.delegate().column_widths() == next_widths {
+                return;
+            }
+            table.delegate_mut().set_columns(cols);
+            table.refresh(cx);
+        });
+    }
+
+    /// A manual column drag finished: write the widths through to the delegate
+    /// (so the next fetch's `refresh` preserves them, fixing the reset-on-fetch
+    /// bug) and remember them for this (queue, width class). A width vector that
+    /// doesn't match the active columns — a mode-switch race — is ignored.
+    fn on_column_widths_changed(&mut self, widths: Vec<Pixels>, cx: &mut Context<Self>) {
+        let mode = self.state.read(cx).mode;
+        let applied = self.table.update(cx, |table, _cx| {
+            table.delegate_mut().set_column_widths(&widths)
+        });
+        if applied {
+            self.col_overrides.insert((mode, self.width_class), widths);
+        }
     }
 
     /// Keep keyboard/mouse selection off the section-header pseudo-rows: when a

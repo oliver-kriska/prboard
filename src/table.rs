@@ -14,12 +14,12 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     div, px, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Stateful, StatefulInteractiveElement, Styled, Window,
+    MouseButton, ParentElement, Pixels, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use gpui_component::table::{Column, TableDelegate, TableState};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, ActiveTheme};
-use prboard_core::board::{BoardRow, Category, Ci, Mode, ReviewState};
+use prboard_core::board::{Blocker, BoardRow, Category, Ci, Mode, ReviewState};
 
 use crate::design::{CHIP_HEIGHT, CHIP_PAD_X, CHIP_RADIUS, STATUS_DOT};
 
@@ -29,6 +29,117 @@ use crate::design::{CHIP_HEIGHT, CHIP_PAD_X, CHIP_RADIUS, STATUS_DOT};
 enum DisplayRow {
     Header { label: &'static str, count: usize },
     Pr(usize),
+}
+
+/// Viewport-width buckets that drive the responsive column layout. Kept a
+/// small closed set (not raw pixels) so the per-(mode, class) manual-resize
+/// overrides in `app.rs` stay bounded (2 modes × 3 classes = 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TableWidthClass {
+    Compact,
+    Medium,
+    Wide,
+}
+
+/// Below this the layout is Compact (Labels column dropped).
+const COMPACT_MAX: f32 = 1120.0;
+/// At/above this the layout is Wide.
+const WIDE_MIN: f32 = 1360.0;
+
+impl TableWidthClass {
+    pub fn from_width(width: f32) -> Self {
+        if width < COMPACT_MAX {
+            Self::Compact
+        } else if width < WIDE_MIN {
+            Self::Medium
+        } else {
+            Self::Wide
+        }
+    }
+}
+
+// Bounded fixed-column widths (px). Title and Note share the elastic remainder.
+const PR_W: f32 = 92.0;
+const CI_W: f32 = 68.0;
+const UNRESOLVED_W: f32 = 52.0;
+const LABELS_W: f32 = 96.0;
+const REVIEW_W_COMPACT: f32 = 160.0;
+const REVIEW_W: f32 = 190.0;
+const AUTHOR_W_COMPACT: f32 = 96.0;
+const AUTHOR_W: f32 = 116.0;
+/// Title and Note never shrink below these; at the 900px floor the total still
+/// fits without pushing Note offscreen.
+const TITLE_MIN: f32 = 240.0;
+const NOTE_MIN: f32 = 280.0;
+/// Vertical-scrollbar + safety allowance subtracted from the viewport.
+const SCROLLBAR_MARGIN: f32 = 24.0;
+/// Title's share of the elastic remainder; Note keeps the larger rest.
+const TITLE_FLEX_RATIO: f32 = 0.44;
+/// Auto Title/Note widths quantize to this, so a resize drag only rebuilds
+/// columns once per step instead of every pixel.
+const QUANTUM: f32 = 16.0;
+/// Placeholder viewport for the delegate's initial columns; `RootView::new`
+/// immediately relayouts to the real window width.
+const DEFAULT_VIEWPORT_WIDTH: f32 = 1280.0;
+
+/// The responsive column set for a mode at a given width class and viewport.
+///
+/// Human scanning order (critique #3): identity first (PR + draft badge), then
+/// WHAT it is (Title), then health (CI), then the merged Review / Author +
+/// Unresolved metadata, then Labels, then the Note. Fixed metadata columns get
+/// bounded widths; Title and Note split the remaining viewport with Note kept
+/// at least as wide as Title. Labels drop out in Compact. Pure — no GPUI
+/// context — so the layout is unit-tested directly.
+pub fn columns_for(mode: Mode, class: TableWidthClass, viewport_width: f32) -> Vec<Column> {
+    let compact = class == TableWidthClass::Compact;
+    let show_labels = !compact;
+    let review_w = if compact { REVIEW_W_COMPACT } else { REVIEW_W };
+    let author_w = if compact { AUTHOR_W_COMPACT } else { AUTHOR_W };
+    let labels_w = if show_labels { LABELS_W } else { 0.0 };
+
+    let fixed_sum = match mode {
+        Mode::Authored => PR_W + CI_W + review_w + labels_w,
+        Mode::Review => PR_W + CI_W + author_w + UNRESOLVED_W + labels_w,
+    };
+    // Elastic remainder, floored so Title/Note always meet their minimums.
+    let flexible = (viewport_width - fixed_sum - SCROLLBAR_MARGIN).max(TITLE_MIN + NOTE_MIN);
+    let mut title_w = ((flexible * TITLE_FLEX_RATIO / QUANTUM).round() * QUANTUM).max(TITLE_MIN);
+    let note_w = (flexible - title_w).max(NOTE_MIN);
+    if note_w < title_w {
+        // Never let Title out-grow Note — Note is the product.
+        title_w = note_w;
+    }
+
+    let col = |key: &'static str, name: &'static str, w: f32| Column::new(key, name).width(px(w));
+    match mode {
+        Mode::Authored => {
+            let mut cols = vec![
+                col("pr", "PR", PR_W),
+                col("title", "Title", title_w),
+                col("ci", "CI", CI_W),
+                col("review", "Review", review_w),
+            ];
+            if show_labels {
+                cols.push(col("labels", "Labels", LABELS_W));
+            }
+            cols.push(col("note", "Note", note_w));
+            cols
+        }
+        Mode::Review => {
+            let mut cols = vec![
+                col("pr", "PR", PR_W),
+                col("title", "Title", title_w),
+                col("ci", "CI", CI_W),
+                col("author", "Author", author_w),
+                col("unresolved", "Unres", UNRESOLVED_W),
+            ];
+            if show_labels {
+                cols.push(col("labels", "Labels", LABELS_W));
+            }
+            cols.push(col("note", "Note", note_w));
+            cols
+        }
+    }
 }
 
 pub struct BoardTableDelegate {
@@ -43,48 +154,42 @@ impl BoardTableDelegate {
         Self {
             rows: Vec::new(),
             display: Vec::new(),
-            columns: Self::columns_for(mode),
+            columns: columns_for(mode, TableWidthClass::Medium, DEFAULT_VIEWPORT_WIDTH),
             mode,
         }
     }
 
-    /// Rebuild the column set AND the section grouping on an in-app mode switch
-    /// (rows arrive with the switched fetch via the generation observer).
+    /// Switch queue: change the sort/grouping mode and re-band the display.
+    /// Columns are owned by `RootView` (they depend on the live window width),
+    /// so it calls `set_columns` right after this.
     pub fn set_mode(&mut self, mode: Mode) {
         self.mode = mode;
-        self.columns = Self::columns_for(mode);
         self.rebuild_display();
     }
 
-    fn columns_for(mode: Mode) -> Vec<Column> {
-        // Human scanning order (critique #3): identity first (PR + draft
-        // badge), then WHAT it is (Title), then health (CI), then a single
-        // merged Review column (requested XOR completed reviews — most cells
-        // were empty split across two columns), then Labels, then the Note.
-        // The always-"ready" Status column is gone. Note stays last and widest:
-        // it is the product (visual-design doc), and Title degrades gracefully
-        // where the Note must not. The recovered width goes to Title/Note; the
-        // sum fits the default 1440px window.
-        match mode {
-            Mode::Authored => vec![
-                // 100px fits "#NNNNN" plus the draft badge without clipping.
-                Column::new("pr", "PR").width(px(100.)),
-                Column::new("title", "Title").width(px(420.)),
-                Column::new("ci", "CI").width(px(72.)),
-                Column::new("review", "Review").width(px(210.)),
-                Column::new("labels", "Labels").width(px(96.)),
-                Column::new("note", "Note").width(px(490.)),
-            ],
-            Mode::Review => vec![
-                Column::new("pr", "PR").width(px(100.)),
-                Column::new("title", "Title").width(px(540.)),
-                Column::new("ci", "CI").width(px(72.)),
-                Column::new("author", "Author").width(px(120.)),
-                Column::new("unresolved", "Unres").width(px(56.)),
-                Column::new("labels", "Labels").width(px(96.)),
-                Column::new("note", "Note").width(px(470.)),
-            ],
+    /// Replace the whole column set (responsive relayout or a mode switch).
+    pub fn set_columns(&mut self, columns: Vec<Column>) {
+        self.columns = columns;
+    }
+
+    /// Current column widths, in column order — used to snapshot a manual
+    /// layout and to skip a no-op relayout.
+    pub fn column_widths(&self) -> Vec<Pixels> {
+        self.columns.iter().map(|c| c.width).collect()
+    }
+
+    /// Write runtime widths back into the delegate columns so the next
+    /// `TableState::refresh` (which rebuilds from `Column.width`) preserves
+    /// them. Rejects a width vector whose length does not match the active
+    /// columns — a mode-switch race — returning `false`.
+    pub fn set_column_widths(&mut self, widths: &[Pixels]) -> bool {
+        if widths.len() != self.columns.len() {
+            return false;
         }
+        for (col, w) in self.columns.iter_mut().zip(widths) {
+            col.width = *w;
+        }
+        true
     }
 
     pub fn set_rows(&mut self, rows: Vec<BoardRow>) {
@@ -216,6 +321,186 @@ fn review_state_word(state: &str) -> &'static str {
         "CHANGES_REQUESTED" => "requested changes",
         "DISMISSED" => "dismissed",
         _ => "reviewed",
+    }
+}
+
+/// The visual tone of a Note cell: it picks the dot color and whether the
+/// primary phrase is alarm-colored. Severity is a *presentation* concern and
+/// lives here, never in core (`prboard_core::board::Blocker` carries only
+/// facts). See the rendering rules in the note-hierarchy plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoteTone {
+    /// Exceptional blocker — merge conflict / CI failure / changes requested.
+    /// Red dot, red primary phrase; it should interrupt the scan.
+    Danger,
+    /// Routine action needed — reviewers to assign, comments to resolve, a
+    /// review still owed. Amber dot, muted text: visible but peripheral, so a
+    /// column of them never forms a red wall.
+    Warning,
+    /// Merged-path good news — approved / awaiting after approval. Green dot.
+    Success,
+    /// Completed but neutral — you already reviewed, nothing outstanding on
+    /// you. A muted dot, muted text.
+    Routine,
+    /// Draft / inactive: no dot, dim text.
+    Muted,
+}
+
+/// A Note cell decomposed for exception-first rendering: one emphasized
+/// `primary` phrase, an optional inline `remedy`, and muted `context` facts so
+/// no blocker disappears into the tooltip alone. Pure data (no GPUI types), so
+/// it is unit-tested without a window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NotePresentation {
+    tone: NoteTone,
+    primary: String,
+    remedy: Option<String>,
+    context: Vec<String>,
+    /// The full, glyph-stripped canonical note — always the hover tooltip.
+    tooltip: String,
+}
+
+/// Presentation priority — deliberately different from the canonical note
+/// order: the most operationally urgent blocker is shown first and colored.
+fn blocker_rank(blocker: &Blocker) -> u8 {
+    match blocker {
+        Blocker::MergeConflict => 0,
+        Blocker::CiFailing => 1,
+        Blocker::ChangesRequested => 2,
+        Blocker::UnresolvedComments(_) => 3,
+        Blocker::NoReviewers { .. } => 4,
+    }
+}
+
+/// Merge conflict / CI failure / changes-requested interrupt the scan (danger);
+/// unresolved comments and missing reviewers are routine follow-up (warning).
+fn is_exceptional(blocker: &Blocker) -> bool {
+    matches!(
+        blocker,
+        Blocker::MergeConflict | Blocker::CiFailing | Blocker::ChangesRequested
+    )
+}
+
+/// The blocker as the emphasized primary phrase (+ optional muted remedy).
+fn blocker_primary(blocker: &Blocker) -> (String, Option<String>) {
+    match blocker {
+        Blocker::MergeConflict => ("merge conflict".into(), Some("rebase".into())),
+        Blocker::CiFailing => ("CI failing".into(), None),
+        Blocker::ChangesRequested => ("changes requested".into(), None),
+        Blocker::UnresolvedComments(n) => (
+            format!("resolve {n} comment{}", if *n == 1 { "" } else { "s" }),
+            None,
+        ),
+        Blocker::NoReviewers { suggested } => {
+            if suggested.is_empty() {
+                ("assign reviewers".into(), None)
+            } else {
+                (format!("assign {}", suggested.join(" + ")), None)
+            }
+        }
+    }
+}
+
+/// The blocker as a compact muted context fact (shown when a higher-priority
+/// blocker is the primary), so it stays visible on the row, not only on hover.
+fn blocker_context(blocker: &Blocker) -> String {
+    match blocker {
+        Blocker::MergeConflict => "merge conflict".into(),
+        Blocker::CiFailing => "CI failing".into(),
+        Blocker::ChangesRequested => "changes requested".into(),
+        Blocker::UnresolvedComments(n) => format!("{n} unresolved"),
+        Blocker::NoReviewers { .. } => "reviewers missing".into(),
+    }
+}
+
+/// Split a note into a primary phrase and an optional " — " remedy, for the
+/// review-queue exceptional notes ("CI red — maybe wait for green").
+fn split_remedy(text: &str) -> (String, Option<String>) {
+    match text.split_once(" — ") {
+        Some((head, tail)) => (head.to_string(), Some(tail.to_string())),
+        None => (text.to_string(), None),
+    }
+}
+
+/// Exception-first decomposition of an authored **Action** row: the highest
+/// presentation-priority blocker becomes the primary (danger-colored when it is
+/// exceptional), and every remaining blocker becomes a muted context fact in
+/// priority order — nothing is dropped.
+fn action_presentation(row: &BoardRow, tooltip: String) -> NotePresentation {
+    let mut ranked: Vec<&Blocker> = row.blockers.iter().collect();
+    ranked.sort_by_key(|b| blocker_rank(b));
+    let Some((primary_blocker, rest)) = ranked.split_first() else {
+        // An Action row always carries >=1 blocker; degrade calmly if not.
+        return NotePresentation {
+            tone: NoteTone::Warning,
+            primary: tooltip.clone(),
+            remedy: None,
+            context: Vec::new(),
+            tooltip,
+        };
+    };
+    let tone = if is_exceptional(primary_blocker) {
+        NoteTone::Danger
+    } else {
+        NoteTone::Warning
+    };
+    let (primary, remedy) = blocker_primary(primary_blocker);
+    let context = rest.iter().map(|b| blocker_context(b)).collect();
+    NotePresentation {
+        tone,
+        primary,
+        remedy,
+        context,
+        tooltip,
+    }
+}
+
+/// A one-phrase note: the whole (stripped) note as the primary, no remedy or
+/// context. Used for the calm await/done/draft/routine states.
+fn plain_note(tone: NoteTone, tooltip: String) -> NotePresentation {
+    NotePresentation {
+        tone,
+        primary: tooltip.clone(),
+        remedy: None,
+        context: Vec::new(),
+        tooltip,
+    }
+}
+
+/// Turn a row into its calm-then-exception Note presentation. Pure — the
+/// rendering in `render_td` only maps tone → colors. Each arm moves `tooltip`
+/// exactly once (the arms are mutually exclusive), so no clone is needed.
+fn note_presentation(row: &BoardRow) -> NotePresentation {
+    let tooltip = strip_note_glyphs(&row.note);
+    match row.category {
+        Category::Action => action_presentation(row, tooltip),
+        // Review queue: a red health signal interrupts; otherwise it is a
+        // routine "please review", warned but calm — never a danger wall.
+        Category::Todo => {
+            if row.ci == Ci::Fail || row.conflict {
+                let (primary, remedy) = split_remedy(&tooltip);
+                NotePresentation {
+                    tone: NoteTone::Danger,
+                    primary,
+                    remedy,
+                    context: Vec::new(),
+                    tooltip,
+                }
+            } else {
+                plain_note(NoteTone::Warning, tooltip)
+            }
+        }
+        Category::Await => plain_note(NoteTone::Success, tooltip),
+        // "You approved" is good news; "you commented / requested changes" is
+        // neutral — the ball is on the author, nothing is wrong.
+        Category::Done => {
+            if row.my_review.as_deref() == Some("APPROVED") {
+                plain_note(NoteTone::Success, tooltip)
+            } else {
+                plain_note(NoteTone::Routine, tooltip)
+            }
+        }
+        Category::Draft => plain_note(NoteTone::Muted, tooltip),
     }
 }
 
@@ -557,55 +842,57 @@ impl TableDelegate for BoardTableDelegate {
                     .into_any_element();
             }
             "note" => {
-                // Dot carries the state; text stays calm — colored only when
-                // the state needs action (spec §8).
-                let text = strip_note_glyphs(&row.note);
-                let full = text.clone();
-                let (dot, text_color) = match row.category {
-                    Category::Action | Category::Todo => (Some(theme.danger), theme.danger),
-                    Category::Await | Category::Done => (Some(theme.success), muted),
-                    Category::Draft => (None, muted),
+                // Exception-first Note (note-hierarchy plan): the dot + a single
+                // emphasized primary phrase carry the row's worst blocker;
+                // every other blocker trails as muted context so nothing hides
+                // in the tooltip. Only genuinely exceptional blockers get red —
+                // routine "assign reviewers" / "resolve N" rows are amber-muted,
+                // so a column of them no longer reads as one red wall.
+                let NotePresentation {
+                    tone,
+                    primary,
+                    remedy,
+                    context,
+                    tooltip,
+                } = note_presentation(row);
+                let (dot_color, primary_color) = match tone {
+                    NoteTone::Danger => (Some(theme.danger), theme.danger),
+                    NoteTone::Warning => (Some(theme.warning), muted),
+                    NoteTone::Success => (Some(theme.success), muted),
+                    NoteTone::Routine => (Some(muted), muted),
+                    NoteTone::Muted => (None, muted),
                 };
-                // pr_2: the terminal column needs an optical margin the
-                // 6px cell pad doesn't give (critique #4).
+                // The muted tail: the primary's remedy, then the remaining
+                // blockers as context, in presentation-priority order.
+                let mut tail = String::new();
+                if let Some(remedy) = &remedy {
+                    tail.push_str(" — ");
+                    tail.push_str(remedy);
+                }
+                for fact in &context {
+                    tail.push_str(" · ");
+                    tail.push_str(fact);
+                }
+                // pr_2: the terminal column needs an optical margin the 6px
+                // cell pad doesn't give (critique #4).
                 let mut cell = h_flex().gap_1p5().items_center().overflow_hidden().pr_2();
-                if let Some(color) = dot {
+                if let Some(color) = dot_color {
                     cell = cell.child(status_dot(color));
                 }
-                // Two-tone action notes (critique #1): the problem clause in
-                // danger, the remedy after " — " muted — 14 identical red
-                // rows stop flattening into one red wall.
-                let action = matches!(row.category, Category::Action | Category::Todo);
-                match text.split_once(" — ").filter(|_| action) {
-                    Some((head, tail)) => {
-                        cell = cell
-                            .child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_color(text_color)
-                                    .child(head.to_string()),
-                            )
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_color(muted)
-                                    .child(format!("— {tail}")),
-                            );
-                    }
-                    None => {
-                        cell = cell.child(
-                            div()
-                                .min_w_0()
-                                .truncate()
-                                .text_color(text_color)
-                                .child(text),
-                        );
-                    }
+                // Primary never truncates away; the muted tail absorbs the
+                // ellipsis when the row is narrow.
+                cell = cell.child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(primary_color)
+                        .child(primary),
+                );
+                if !tail.is_empty() {
+                    cell = cell.child(div().min_w_0().truncate().text_color(muted).child(tail));
                 }
                 return cell
                     .id(("note", row_ix))
-                    .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                    .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
                     .into_any_element();
             }
             _ => div(),
@@ -672,9 +959,148 @@ mod tests {
             reviews: Vec::new(),
             my_review: None,
             unresolved: 0,
+            blockers: Vec::new(),
             created_at: String::new(),
             note: String::new(),
         }
+    }
+
+    /// An authored Action row with an explicit blocker list + canonical note,
+    /// for the pure note-presentation tests.
+    fn action_row(blockers: Vec<Blocker>, note: &str) -> BoardRow {
+        let mut r = row(1, Category::Action);
+        r.blockers = blockers;
+        r.note = note.to_string();
+        r
+    }
+
+    #[test]
+    fn no_reviewers_only_is_warning_and_muted() {
+        let p = note_presentation(&action_row(
+            vec![Blocker::NoReviewers {
+                suggested: vec!["alice".into(), "bob".into()],
+            }],
+            "⚠️ no reviewers — assign alice + bob",
+        ));
+        assert_eq!(p.tone, NoteTone::Warning);
+        assert_eq!(p.primary, "assign alice + bob");
+        assert!(p.remedy.is_none());
+        assert!(p.context.is_empty());
+    }
+
+    #[test]
+    fn no_suggested_reviewers_falls_back_to_generic() {
+        let p = note_presentation(&action_row(
+            vec![Blocker::NoReviewers { suggested: vec![] }],
+            "⚠️ no reviewers",
+        ));
+        assert_eq!(p.tone, NoteTone::Warning);
+        assert_eq!(p.primary, "assign reviewers");
+    }
+
+    #[test]
+    fn conflict_outranks_reviewers_and_keeps_them_as_context() {
+        let p = note_presentation(&action_row(
+            vec![
+                Blocker::NoReviewers {
+                    suggested: vec!["alice".into(), "bob".into()],
+                },
+                Blocker::MergeConflict,
+            ],
+            "⚠️ no reviewers — assign alice + bob · 🔴 merge conflict — rebase",
+        ));
+        assert_eq!(p.tone, NoteTone::Danger);
+        assert_eq!(p.primary, "merge conflict");
+        assert_eq!(p.remedy.as_deref(), Some("rebase"));
+        assert_eq!(p.context, vec!["reviewers missing".to_string()]);
+    }
+
+    #[test]
+    fn every_blocker_is_represented_across_primary_and_context() {
+        let p = note_presentation(&action_row(
+            vec![
+                Blocker::NoReviewers {
+                    suggested: vec!["alice".into()],
+                },
+                Blocker::MergeConflict,
+                Blocker::CiFailing,
+                Blocker::ChangesRequested,
+                Blocker::UnresolvedComments(3),
+            ],
+            "canonical",
+        ));
+        assert_eq!(p.tone, NoteTone::Danger);
+        assert_eq!(p.primary, "merge conflict");
+        assert_eq!(
+            p.context,
+            vec![
+                "CI failing".to_string(),
+                "changes requested".to_string(),
+                "3 unresolved".to_string(),
+                "reviewers missing".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn ci_failure_outranks_unresolved_comments() {
+        // Listed unresolved-first, but CI (rank 1) beats unresolved (rank 3).
+        let p = note_presentation(&action_row(
+            vec![Blocker::UnresolvedComments(2), Blocker::CiFailing],
+            "canonical",
+        ));
+        assert_eq!(p.tone, NoteTone::Danger);
+        assert_eq!(p.primary, "CI failing");
+        assert_eq!(p.context, vec!["2 unresolved".to_string()]);
+    }
+
+    #[test]
+    fn routine_review_queue_item_is_warning_not_danger() {
+        let mut r = row(5, Category::Todo);
+        r.note = "🔵 needs your review".into();
+        let p = note_presentation(&r);
+        assert_eq!(p.tone, NoteTone::Warning);
+        assert_eq!(p.primary, "needs your review");
+    }
+
+    #[test]
+    fn review_queue_with_bad_ci_or_conflict_is_danger() {
+        let mut r = row(6, Category::Todo);
+        r.ci = Ci::Fail;
+        r.note = "⚠️ CI red — maybe wait for green".into();
+        let p = note_presentation(&r);
+        assert_eq!(p.tone, NoteTone::Danger);
+        assert_eq!(p.primary, "CI red");
+        assert_eq!(p.remedy.as_deref(), Some("maybe wait for green"));
+
+        let mut r2 = row(7, Category::Todo);
+        r2.conflict = true;
+        r2.note = "⚠️ has conflicts".into();
+        assert_eq!(note_presentation(&r2).tone, NoteTone::Danger);
+    }
+
+    #[test]
+    fn tooltip_is_the_full_stripped_canonical_note() {
+        let p = note_presentation(&action_row(
+            vec![
+                Blocker::NoReviewers {
+                    suggested: vec!["alice".into(), "bob".into()],
+                },
+                Blocker::CiFailing,
+                Blocker::UnresolvedComments(3),
+            ],
+            "⚠️ no reviewers — assign alice + bob · ❌ CI failing · 🟡 3 unresolved comments",
+        ));
+        assert_eq!(
+            p.tooltip,
+            "no reviewers — assign alice + bob · CI failing · 3 unresolved comments"
+        );
+        // And the visible row still surfaces every fact: CI primary, the rest muted.
+        assert_eq!(p.primary, "CI failing");
+        assert_eq!(
+            p.context,
+            vec!["3 unresolved".to_string(), "reviewers missing".to_string()]
+        );
     }
 
     #[test]
@@ -733,5 +1159,150 @@ mod tests {
         assert!(d
             .display_index_of_url("https://github.com/acme/widgets/pull/999")
             .is_none());
+    }
+
+    // ---- Responsive layout (Phase 3) + manual-resize preservation (Phase 4) ----
+
+    fn width_of(cols: &[Column], key: &str) -> Option<f32> {
+        cols.iter()
+            .find(|c| c.key.as_ref() == key)
+            .map(|c| f32::from(c.width))
+    }
+
+    fn total_width(cols: &[Column]) -> f32 {
+        cols.iter().map(|c| f32::from(c.width)).sum()
+    }
+
+    const ALL_CLASSES: [TableWidthClass; 3] = [
+        TableWidthClass::Compact,
+        TableWidthClass::Medium,
+        TableWidthClass::Wide,
+    ];
+
+    #[test]
+    fn width_class_thresholds() {
+        assert_eq!(TableWidthClass::from_width(900.0), TableWidthClass::Compact);
+        assert_eq!(
+            TableWidthClass::from_width(1119.0),
+            TableWidthClass::Compact
+        );
+        assert_eq!(TableWidthClass::from_width(1120.0), TableWidthClass::Medium);
+        assert_eq!(TableWidthClass::from_width(1359.0), TableWidthClass::Medium);
+        assert_eq!(TableWidthClass::from_width(1360.0), TableWidthClass::Wide);
+    }
+
+    #[test]
+    fn columns_fit_within_viewport_budgets() {
+        for &w in &[900.0_f32, 1100.0, 1440.0, 1920.0] {
+            let class = TableWidthClass::from_width(w);
+            for mode in [Mode::Authored, Mode::Review] {
+                let cols = columns_for(mode, class, w);
+                // Column widths + scrollbar margin must stay within the viewport;
+                // Note is last, so overflow would push it offscreen.
+                assert!(
+                    total_width(&cols) + SCROLLBAR_MARGIN <= w + 1.0,
+                    "mode {mode:?} at {w}px: total {} overflows",
+                    total_width(&cols)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn labels_present_except_in_compact() {
+        for mode in [Mode::Authored, Mode::Review] {
+            assert!(
+                width_of(
+                    &columns_for(mode, TableWidthClass::Compact, 1000.0),
+                    "labels"
+                )
+                .is_none(),
+                "{mode:?}: Labels should drop in Compact"
+            );
+            assert!(width_of(
+                &columns_for(mode, TableWidthClass::Medium, 1200.0),
+                "labels"
+            )
+            .is_some());
+            assert!(
+                width_of(&columns_for(mode, TableWidthClass::Wide, 1440.0), "labels").is_some()
+            );
+        }
+    }
+
+    #[test]
+    fn required_columns_never_disappear() {
+        let required = |mode: Mode| -> &'static [&'static str] {
+            match mode {
+                Mode::Authored => &["pr", "title", "ci", "review", "note"],
+                Mode::Review => &["pr", "title", "ci", "author", "unresolved", "note"],
+            }
+        };
+        for &class in &ALL_CLASSES {
+            for mode in [Mode::Authored, Mode::Review] {
+                let cols = columns_for(mode, class, 900.0);
+                for key in required(mode) {
+                    assert!(
+                        width_of(&cols, key).is_some(),
+                        "{mode:?} {class:?}: required column {key} missing"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn title_and_note_respect_minimums_and_note_priority() {
+        for &w in &[900.0_f32, 1000.0, 1120.0, 1200.0, 1360.0, 1440.0, 1920.0] {
+            let class = TableWidthClass::from_width(w);
+            for mode in [Mode::Authored, Mode::Review] {
+                let cols = columns_for(mode, class, w);
+                let title = width_of(&cols, "title").unwrap();
+                let note = width_of(&cols, "note").unwrap();
+                assert!(
+                    title >= TITLE_MIN,
+                    "{mode:?} {w}px: title {title} < {TITLE_MIN}"
+                );
+                assert!(note >= NOTE_MIN, "{mode:?} {w}px: note {note} < {NOTE_MIN}");
+                assert!(note >= title, "{mode:?} {w}px: note {note} < title {title}");
+            }
+        }
+    }
+
+    #[test]
+    fn manual_widths_apply_only_when_count_matches() {
+        let mut d = BoardTableDelegate::new(Mode::Authored);
+        d.set_columns(columns_for(Mode::Authored, TableWidthClass::Wide, 1440.0));
+        let n = d.column_widths().len();
+
+        // A width vector of the wrong length (a mode-switch race) is rejected.
+        assert!(!d.set_column_widths(&vec![px(50.0); n + 1]));
+
+        // A matching vector is copied straight into the delegate columns, which
+        // is exactly what TableState::refresh rebuilds col_groups from — so a
+        // simulated refresh (reading column_widths back) preserves them.
+        let widths: Vec<Pixels> = (0..n).map(|i| px(100.0 + i as f32)).collect();
+        assert!(d.set_column_widths(&widths));
+        assert_eq!(d.column_widths(), widths);
+    }
+
+    #[test]
+    fn override_storage_is_bounded_and_independent() {
+        use std::collections::HashMap;
+        let mut overrides: HashMap<(Mode, TableWidthClass), Vec<Pixels>> = HashMap::new();
+        for mode in [Mode::Authored, Mode::Review] {
+            for &class in &ALL_CLASSES {
+                overrides.insert((mode, class), vec![px(mode as u8 as f32), px(1.0)]);
+            }
+        }
+        // 2 modes × 3 classes — the map can never hold more.
+        assert_eq!(overrides.len(), 6);
+        overrides.insert((Mode::Authored, TableWidthClass::Wide), vec![px(9.0)]);
+        assert_eq!(overrides.len(), 6);
+        // Each (mode, class) layout is stored independently.
+        assert_ne!(
+            overrides[&(Mode::Authored, TableWidthClass::Compact)],
+            overrides[&(Mode::Review, TableWidthClass::Compact)]
+        );
     }
 }
