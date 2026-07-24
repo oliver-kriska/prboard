@@ -47,14 +47,17 @@ pub struct RootView {
     seen_generation: u64,
     theme_pref: ThemePref,
     refresh: Duration,
-    /// Last selected display-row per queue, restored on switch-back so a queue
-    /// keeps its place (critique #1). Bounded by the number of modes.
-    selections: HashMap<Mode, usize>,
+    /// Selected PR per queue, keyed by stable identity (URL), restored on
+    /// switch-back so a queue keeps its place (critique #1). Stored by URL —
+    /// NOT display index — so a background refresh that inserts/removes/reorders
+    /// rows can never silently reselect a different PR or a header. Bounded by
+    /// the number of modes.
+    selections: HashMap<Mode, String>,
     /// Set on a mode switch and consumed by the generation observer once the
     /// switched rows land, so selection restore happens after the rows exist.
     pending_restore: Option<Mode>,
     /// Last real (non-header) selected row, so header bounces know which way
-    /// the caret was travelling.
+    /// the caret was travelling. Reset on any queue/repo switch.
     last_selected: usize,
 }
 
@@ -97,6 +100,12 @@ impl RootView {
                     };
                     let repo = repo.clone();
                     crate::config::persist_str("repo", &repo);
+                    // View-local navigation state belongs to the old repo — its
+                    // cached rows and per-queue selections are meaningless for a
+                    // different repo (critique #4). Clear before switching.
+                    this.selections.clear();
+                    this.pending_restore = None;
+                    this.last_selected = 0;
                     this.state.update(cx, |s, cx| s.switch_repo(repo, cx));
                 },
             )
@@ -129,24 +138,36 @@ impl RootView {
             if generation != this.seen_generation {
                 this.seen_generation = generation;
                 let rows = state.read(cx).rows.clone();
-                let restore = this
-                    .pending_restore
-                    .take()
-                    .and_then(|m| this.selections.get(&m).copied());
+
+                // Resolve selection by PR identity (URL), never by raw index:
+                // on a switch, the queue's remembered PR; on a plain refresh,
+                // the PR currently selected (so a reorder/insert/remove keeps
+                // the same PR highlighted, or clears if it's gone).
+                let switching = this.pending_restore.take();
+                let current_url = this.table.read(cx).selected_row().and_then(|ix| {
+                    this.table
+                        .read(cx)
+                        .delegate()
+                        .row(ix)
+                        .map(|r| r.url.clone())
+                });
+                let target_url = match &switching {
+                    Some(mode) => this.selections.get(mode).cloned(),
+                    None => current_url,
+                };
+                let scroll = switching.is_some();
+
                 this.table.update(cx, |table, cx| {
                     table.delegate_mut().set_rows(rows);
                     table.refresh(cx);
-                    let len = table.delegate().display_len();
-                    match restore {
-                        Some(sel) if sel < len && !table.delegate().is_header(sel) => {
-                            table.set_selected_row(sel, cx);
-                            table.scroll_to_row(sel, cx);
-                        }
-                        _ => {
-                            if table.selected_row().is_some_and(|s| s >= len) {
-                                table.clear_selection(cx);
+                    match target_url.and_then(|u| table.delegate().display_index_of_url(&u)) {
+                        Some(ix) => {
+                            table.set_selected_row(ix, cx);
+                            if scroll {
+                                table.scroll_to_row(ix, cx);
                             }
                         }
+                        None => table.clear_selection(cx),
                     }
                 });
             }
@@ -239,9 +260,20 @@ impl RootView {
         if current == mode {
             return;
         }
-        if let Some(sel) = self.table.read(cx).selected_row() {
-            self.selections.insert(current, sel);
+        // Remember the PR we're leaving by URL (stable across the refresh that
+        // the target queue will run).
+        if let Some(ix) = self.table.read(cx).selected_row() {
+            if let Some(url) = self
+                .table
+                .read(cx)
+                .delegate()
+                .row(ix)
+                .map(|r| r.url.clone())
+            {
+                self.selections.insert(current, url);
+            }
         }
+        self.last_selected = 0;
         self.pending_restore = Some(mode);
         self.state.update(cx, |s, cx| s.set_mode(mode, cx));
         self.table.update(cx, |table, cx| {
@@ -328,23 +360,28 @@ impl RootView {
     fn render_header(&self, cx: &Context<Self>) -> impl IntoElement {
         let state = self.state.read(cx);
         let theme = cx.theme();
-        let (action, awaiting, drafts) = state.counts();
-        let draft_label = if drafts == 1 { "draft" } else { "drafts" };
-        let counts = match state.mode {
-            prboard_core::board::Mode::Authored => format!(
-                "{} open · {action} need action · {awaiting} awaiting review · {drafts} {draft_label}",
-                state.rows.len()
-            ),
-            prboard_core::board::Mode::Review => format!(
-                "{} open · {action} pending · {awaiting} reviewed · {drafts} {draft_label}",
-                state.rows.len()
-            ),
+        // Just the total: the section headers already carry the per-category
+        // breakdown, so repeating "N need action · N awaiting…" here is
+        // redundant and truncates at narrow widths (design review). This frees
+        // titlebar room for the future `/` search field.
+        let counts = format!("{} open", state.rows.len());
+        // Status priority: a hard error wins; then a rate-limit back-off (so a
+        // switch into a paused window shows "paused", not a permanent
+        // "Loading…"); otherwise the queue-specific sync line. Static text only
+        // — a spinner would defeat the idle-GPU half of the spike gate.
+        let (status_text, status_color) = if let Some(err) = state.error.clone() {
+            (err, theme.danger)
+        } else if let Some(secs) = state.backoff_remaining() {
+            (
+                format!("paused · retry in {}", human_duration(secs)),
+                theme.warning,
+            )
+        } else {
+            (
+                queue_sync_text(state.mode, state.syncing, state.last_synced),
+                theme.muted_foreground,
+            )
         };
-        // Static text only — a spinner animation would defeat the idle-GPU
-        // half of the spike gate (zed#55949). Copy is queue-specific and keeps
-        // the "synced Xm ago" anchor visible while a background refresh runs,
-        // so the control reads as navigation, not a re-run (critique #6/#1).
-        let sync = queue_sync_text(state.mode, state.syncing, state.last_synced);
         let budget = state
             .rate
             .as_ref()
@@ -420,10 +457,7 @@ impl RootView {
                     .gap_3()
                     .text_size(px(12.))
                     .text_color(theme.muted_foreground)
-                    .map(|this| match state.error.clone() {
-                        Some(err) => this.child(div().text_color(theme.danger).child(err)),
-                        None => this.child(sync),
-                    })
+                    .child(div().text_color(status_color).child(status_text))
                     .when_some(budget, |this, b| this.child(b)),
             )
     }
@@ -509,6 +543,25 @@ fn queue_loading_text(mode: Mode) -> &'static str {
     }
 }
 
+/// What the table area shows, derived from `AppState` truth (`last_synced` /
+/// back-off / error) rather than the row `generation` — so an unseen queue or a
+/// first-fetch failure never renders a contradictory "empty" or "Loading…".
+enum BodyState {
+    Loaded,
+    Loading(String),
+    Paused(String),
+    Failed(String),
+}
+
+/// "45s" / "3m" / "1h 5m" — compact, for the back-off retry countdown.
+fn human_duration(secs: u64) -> String {
+    match secs {
+        0..=59 => format!("{secs}s"),
+        60..=3599 => format!("{}m", secs / 60),
+        _ => format!("{}h {}m", secs / 3600, (secs % 3600) / 60),
+    }
+}
+
 impl Focusable for RootView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -518,8 +571,24 @@ impl Focusable for RootView {
 impl Render for RootView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let loaded = self.state.read(cx).generation > 0;
-        let loading_text = queue_loading_text(self.state.read(cx).mode);
+        // Body state from truth, not `generation` (which also bumps on a switch
+        // to an unseen queue and on a repo change): a queue has loaded ONLY
+        // once a fetch succeeded (`last_synced`). Otherwise show the real
+        // reason it's not showing rows — paused for back-off, a first-fetch
+        // error, or still loading — never a stale "Loading…" over an error or
+        // a premature "empty" over a fetch in flight (critique #6).
+        let body = {
+            let s = self.state.read(cx);
+            if s.last_synced.is_some() {
+                BodyState::Loaded
+            } else if let Some(secs) = s.backoff_remaining() {
+                BodyState::Paused(format!("Paused — retrying in {}", human_duration(secs)))
+            } else if let Some(err) = s.error.clone() {
+                BodyState::Failed(format!("Couldn't load — {err}  ·  press r to retry"))
+            } else {
+                BodyState::Loading(queue_loading_text(s.mode).to_string())
+            }
+        };
 
         v_flex()
             .size_full()
@@ -535,22 +604,30 @@ impl Render for RootView {
                     .flex_1()
                     .min_h_0()
                     .text_size(px(crate::design::TABLE_TEXT_PX))
-                    .map(|this| {
-                        if loaded {
-                            // bordered defaults to TRUE — at full bleed the
-                            // outer border + rounded corners fight the
-                            // window edge (spec §5: header border is the
-                            // only separator).
+                    .map(|this| match body {
+                        // bordered defaults to TRUE — at full bleed the outer
+                        // border + rounded corners fight the window edge
+                        // (spec §5: header border is the only separator). Once
+                        // loaded, the delegate's own render_empty shows the
+                        // queue-specific "nothing here" — correct, because we
+                        // now KNOW the queue is empty.
+                        BodyState::Loaded => {
                             this.child(Table::new(&self.table).small().stripe(true).bordered(false))
-                        } else {
-                            this.child(
-                                h_flex()
-                                    .size_full()
-                                    .justify_center()
-                                    .text_color(theme.muted_foreground)
-                                    .child(loading_text),
-                            )
                         }
+                        BodyState::Loading(text) | BodyState::Paused(text) => this.child(
+                            h_flex()
+                                .size_full()
+                                .justify_center()
+                                .text_color(theme.muted_foreground)
+                                .child(text),
+                        ),
+                        BodyState::Failed(text) => this.child(
+                            h_flex()
+                                .size_full()
+                                .justify_center()
+                                .text_color(theme.danger)
+                                .child(text),
+                        ),
                     }),
             )
             .child(self.render_footer(cx))

@@ -13,13 +13,13 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, App, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
-    Stateful, StatefulInteractiveElement, Styled, Window,
+    div, px, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use gpui_component::table::{Column, TableDelegate, TableState};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{h_flex, ActiveTheme};
-use prboard_core::board::{BoardRow, Category, Ci, Mode};
+use prboard_core::board::{BoardRow, Category, Ci, Mode, ReviewState};
 
 use crate::design::{CHIP_HEIGHT, CHIP_PAD_X, CHIP_RADIUS, STATUS_DOT};
 
@@ -58,31 +58,31 @@ impl BoardTableDelegate {
 
     fn columns_for(mode: Mode) -> Vec<Column> {
         // Human scanning order (critique #3): identity first (PR + draft
-        // badge), then WHAT it is (Title), then health (CI), then who/what is
-        // blocking, then Labels, then the Note. The always-"ready" Status
-        // column is gone — draft is a compact badge in the PR cell instead.
-        // Note stays last and widest: it is the product (visual-design doc),
-        // and Title degrades gracefully where the Note must not. The width
+        // badge), then WHAT it is (Title), then health (CI), then a single
+        // merged Review column (requested XOR completed reviews — most cells
+        // were empty split across two columns), then Labels, then the Note.
+        // The always-"ready" Status column is gone. Note stays last and widest:
+        // it is the product (visual-design doc), and Title degrades gracefully
+        // where the Note must not. The recovered width goes to Title/Note; the
         // sum fits the default 1440px window.
         match mode {
             Mode::Authored => vec![
                 // 100px fits "#NNNNN" plus the draft badge without clipping.
                 Column::new("pr", "PR").width(px(100.)),
-                Column::new("title", "Title").width(px(392.)),
+                Column::new("title", "Title").width(px(420.)),
                 Column::new("ci", "CI").width(px(72.)),
-                Column::new("requested", "Requested").width(px(140.)),
-                Column::new("reviewed", "Reviewed by").width(px(150.)),
+                Column::new("review", "Review").width(px(210.)),
                 Column::new("labels", "Labels").width(px(96.)),
-                Column::new("note", "Note").width(px(440.)),
+                Column::new("note", "Note").width(px(490.)),
             ],
             Mode::Review => vec![
                 Column::new("pr", "PR").width(px(100.)),
-                Column::new("title", "Title").width(px(516.)),
+                Column::new("title", "Title").width(px(540.)),
                 Column::new("ci", "CI").width(px(72.)),
                 Column::new("author", "Author").width(px(120.)),
                 Column::new("unresolved", "Unres").width(px(56.)),
                 Column::new("labels", "Labels").width(px(96.)),
-                Column::new("note", "Note").width(px(440.)),
+                Column::new("note", "Note").width(px(470.)),
             ],
         }
     }
@@ -131,8 +131,31 @@ impl BoardTableDelegate {
         )
     }
 
+    /// The display index of the PR with this URL, if still present. Selection
+    /// is tracked by URL (stable identity), not display index, so a background
+    /// refresh that inserts/removes/reorders rows never silently reselects a
+    /// different PR or a header.
+    pub fn display_index_of_url(&self, url: &str) -> Option<usize> {
+        self.display.iter().position(|d| match d {
+            DisplayRow::Pr(i) => self.rows.get(*i).is_some_and(|r| r.url == url),
+            DisplayRow::Header { .. } => false,
+        })
+    }
+
     pub fn display_len(&self) -> usize {
         self.display.len()
+    }
+}
+
+/// Aggregate review-state word for the merged Review column ("✓ mkurkov —
+/// approved"). Requested-but-unreviewed is handled separately (no reviews yet).
+fn review_state_word_aggregate(state: ReviewState) -> &'static str {
+    match state {
+        ReviewState::Approved => "approved",
+        ReviewState::Changes => "changes requested",
+        ReviewState::Commented => "commented",
+        ReviewState::Waiting => "requested",
+        ReviewState::None => "reviewed",
     }
 }
 
@@ -251,20 +274,13 @@ impl TableDelegate for BoardTableDelegate {
                                 .child(count.to_string()),
                         ),
                 ),
-            Some(DisplayRow::Pr(i)) => match self.rows.get(*i).map(|r| r.category) {
-                // A whisper of a tint keeps "needs me" rows findable at a
-                // glance; the red note dot does the pointing, position does the
-                // sorting. Perceptual loudness, not numeric alpha, must match
-                // across modes: 4% over white reads salmon, over near-black it
-                // vanishes.
-                Some(Category::Action | Category::Todo) => {
-                    let a = if theme.mode.is_dark() { 0.05 } else { 0.02 };
-                    tr.bg(theme.danger.opacity(a))
-                }
-                // Drafts are dimmed (inactive), not tinted (different) — see
-                // the per-cell text colors.
-                _ => tr,
-            },
+            // No per-row tint: the "Needs action" section header, the red note
+            // dot, and the red problem phrase already signal urgency three
+            // times over. A red row band on top of that dominates the screen
+            // and flattens individual CI-fail / conflict rows into one alarm
+            // block (design review, 2026-07-24). Zebra striping stays; state
+            // lives in the Note cell.
+            Some(DisplayRow::Pr(_)) => tr,
             None => tr,
         }
     }
@@ -302,7 +318,15 @@ impl TableDelegate for BoardTableDelegate {
                     .text_color(if dim { muted } else { theme.link })
                     .hover(|this| this.underline())
                     .child(format!("#{}", row.number))
-                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&url)));
+                    // Stop the click bubbling to the row (which would also open
+                    // the PR / start a double-click) and open only on a single
+                    // click — the gpui-component `Link` pattern (critique #3).
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |_, e: &ClickEvent, _, cx| {
+                        if e.click_count() == 1 {
+                            cx.open_url(&url);
+                        }
+                    }));
                 let mut cell = h_flex().gap_1().items_center().child(number);
                 if row.draft {
                     cell = cell.child(
@@ -322,7 +346,10 @@ impl TableDelegate for BoardTableDelegate {
             }
             "labels" => {
                 if row.labels.is_empty() {
-                    div().text_color(muted.opacity(0.5)).child("—")
+                    // Blank, not a dash: three vertical bands of "—" start to
+                    // read as data (design review). Dashes stay only where
+                    // "none" is a meaningful status (CI).
+                    div()
                 } else {
                     // Chips; "bug" is the loud one. Cap the visible count —
                     // the tooltip carries the full list.
@@ -400,26 +427,17 @@ impl TableDelegate for BoardTableDelegate {
                         .text_color(theme.warning)
                         .child(row.unresolved.to_string())
                 } else {
-                    div().text_color(muted.opacity(0.5)).child("—")
+                    div()
                 }
             }
-            "requested" => {
-                if row.requested.is_empty() {
-                    // The red no-reviewers note already carries this signal;
-                    // anything louder than a dim dash is noise.
-                    div().text_color(muted.opacity(0.5)).child("—")
-                } else {
-                    div().child(row.requested.join(", "))
-                }
-            }
-            "reviewed" => {
-                if row.reviews.is_empty() {
-                    div().text_color(muted.opacity(0.5)).child("—")
-                } else {
-                    // Glyph first: when the column truncates, the state glyph
-                    // is the information — the login is recoverable from the
-                    // tooltip, the ±/– is not.
-                    let mut cell = h_flex().gap_2().overflow_hidden();
+            "review" => {
+                // Merged Requested + Reviewed by: completed reviews win (they
+                // supersede a pending request); else show who's requested; else
+                // blank. Most cells were empty split across two columns — this
+                // recovers ~150px for Title/Note. Glyph-first so state survives
+                // truncation.
+                if !row.reviews.is_empty() {
+                    let mut cell = h_flex().gap_2().items_center().overflow_hidden();
                     for r in &row.reviews {
                         let (glyph, color) = review_glyph(&r.state, theme);
                         cell = cell.child(
@@ -436,6 +454,10 @@ impl TableDelegate for BoardTableDelegate {
                                 .child(r.login.clone().unwrap_or_else(|| "?".into())),
                         );
                     }
+                    cell = cell.child(div().flex_shrink_0().text_color(muted).child(format!(
+                        "— {}",
+                        review_state_word_aggregate(row.review_state)
+                    )));
                     let full = row
                         .reviews
                         .iter()
@@ -449,9 +471,30 @@ impl TableDelegate for BoardTableDelegate {
                         .collect::<Vec<_>>()
                         .join(" · ");
                     return cell
-                        .id(("reviewed", row_ix))
+                        .id(("review", row_ix))
                         .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
                         .into_any_element();
+                } else if !row.requested.is_empty() {
+                    let names = row.requested.join(", ");
+                    let full = format!("requested: {names}");
+                    return h_flex()
+                        .gap_1()
+                        .items_center()
+                        .overflow_hidden()
+                        .child(div().flex_shrink_0().text_color(muted).child("→"))
+                        .child(div().min_w_0().truncate().child(names))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_color(muted.opacity(0.7))
+                                .child("— requested"),
+                        )
+                        .id(("review", row_ix))
+                        .tooltip(move |window, cx| Tooltip::new(full.clone()).build(window, cx))
+                        .into_any_element();
+                } else {
+                    // Blank — no review information.
+                    div()
                 }
             }
             "title" => {
@@ -479,9 +522,14 @@ impl TableDelegate for BoardTableDelegate {
                                     .text_color(if dim { muted } else { theme.link })
                                     .hover(|this| this.underline())
                                     .child(issue.clone())
-                                    .on_click(
-                                        cx.listener(move |_, _, _, cx| cx.open_url(&issue_url)),
-                                    ),
+                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation()
+                                    })
+                                    .on_click(cx.listener(move |_, e: &ClickEvent, _, cx| {
+                                        if e.click_count() == 1 {
+                                            cx.open_url(&issue_url)
+                                        }
+                                    })),
                             )
                             .child(div().min_w_0().truncate().child(row.title.clone()))
                     }
@@ -593,5 +641,97 @@ impl TableDelegate for BoardTableDelegate {
             .justify_center()
             .text_color(cx.theme().muted_foreground)
             .child(msg)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Pure display-model tests — no GPUI context. These guard the section
+    //! grouping and the URL-identity selection the design review flagged.
+    //! They run under `cargo test` (which compiles the GPUI binary), not the
+    //! fast core-only `make check`.
+    use super::*;
+
+    fn row(number: u64, category: Category) -> BoardRow {
+        BoardRow {
+            number,
+            url: format!("https://github.com/acme/widgets/pull/{number}"),
+            title: format!("PR {number}"),
+            issue: None,
+            issue_url: None,
+            author: None,
+            draft: matches!(category, Category::Draft),
+            category,
+            bug: false,
+            labels: Vec::new(),
+            ci: Ci::Pass,
+            conflict: false,
+            review_decision: None,
+            review_state: ReviewState::None,
+            requested: Vec::new(),
+            reviews: Vec::new(),
+            my_review: None,
+            unresolved: 0,
+            created_at: String::new(),
+            note: String::new(),
+        }
+    }
+
+    #[test]
+    fn headers_group_contiguous_categories_with_counts() {
+        let mut d = BoardTableDelegate::new(Mode::Authored);
+        d.set_rows(vec![
+            row(1, Category::Action),
+            row(2, Category::Action),
+            row(3, Category::Await),
+            row(4, Category::Draft),
+        ]);
+        // 3 headers + 4 PRs.
+        assert_eq!(d.display_len(), 7);
+        assert!(d.is_header(0) && !d.is_header(1) && !d.is_header(2));
+        assert!(d.is_header(3) && !d.is_header(4));
+        assert!(d.is_header(5) && !d.is_header(6));
+        match &d.display[0] {
+            DisplayRow::Header { label, count } => {
+                assert_eq!(*label, "Needs action");
+                assert_eq!(*count, 2);
+            }
+            _ => panic!("expected a header at 0"),
+        }
+    }
+
+    #[test]
+    fn empty_groups_emit_no_header() {
+        let mut d = BoardTableDelegate::new(Mode::Authored);
+        d.set_rows(vec![row(1, Category::Await)]);
+        // Only "Awaiting review" — no empty Action/Draft headers.
+        assert_eq!(d.display_len(), 2);
+        assert!(d.is_header(0) && !d.is_header(1));
+    }
+
+    #[test]
+    fn selection_resolves_by_url_across_reorder() {
+        let mut d = BoardTableDelegate::new(Mode::Authored);
+        d.set_rows(vec![row(1, Category::Action), row(2, Category::Action)]);
+        let url2 = "https://github.com/acme/widgets/pull/2";
+        let ix = d.display_index_of_url(url2).unwrap();
+        assert_eq!(d.row(ix).unwrap().number, 2);
+        assert!(!d.is_header(ix));
+
+        // A higher-priority row is inserted; #2 shifts, but its URL still
+        // resolves to whatever index now holds PR #2 (identity, not position).
+        d.set_rows(vec![
+            row(3, Category::Action),
+            row(1, Category::Action),
+            row(2, Category::Action),
+        ]);
+        let moved = d.display_index_of_url(url2).unwrap();
+        assert_eq!(d.row(moved).unwrap().number, 2);
+
+        // A vanished PR does not resolve — the caller clears selection instead
+        // of pointing at an arbitrary row or a header.
+        assert!(d
+            .display_index_of_url("https://github.com/acme/widgets/pull/999")
+            .is_none());
     }
 }

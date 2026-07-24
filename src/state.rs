@@ -148,21 +148,13 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn counts(&self) -> (usize, usize, usize) {
-        use prboard_core::board::Category;
-        let count = |c: Category| self.rows.iter().filter(|r| r.category == c).count();
-        match self.mode {
-            Mode::Authored => (
-                count(Category::Action),
-                count(Category::Await),
-                count(Category::Draft),
-            ),
-            Mode::Review => (
-                count(Category::Todo),
-                count(Category::Done),
-                count(Category::Draft),
-            ),
-        }
+    /// Seconds until the next allowed fetch while backing off after a
+    /// rate-limit hit, or `None` if a fetch could run now. Lets the UI show a
+    /// "paused — retrying in Xm" state instead of a permanent "Loading…" when a
+    /// switch to an unseen queue lands inside a back-off window.
+    pub fn backoff_remaining(&self) -> Option<u64> {
+        let now = Local::now().timestamp().max(0) as u64;
+        self.backoff_until.filter(|&u| u > now).map(|u| u - now)
     }
 
     /// Kick off one fetch unless one is in flight or we are backing off.
