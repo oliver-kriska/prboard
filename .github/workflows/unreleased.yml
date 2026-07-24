@@ -46,21 +46,30 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Empty (only whitespace) => nothing unreleased; drop any stale draft.
+          # Delete EVERY existing draft tagged "unreleased" by release id. A draft
+          # has no real git tag, so `gh release delete unreleased` (which resolves
+          # by tag) can't find it and silently fails — that left duplicate drafts
+          # piling up. Deleting by id via the API is reliable and also cleans up
+          # any duplicates a previous concurrent run may have created.
+          gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+            --jq '.[] | select(.draft and .tag_name=="unreleased") | .id' \
+          | while read -r id; do
+              [ -n "$id" ] && gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/$id"
+            done
+
+          # Empty (only whitespace) => nothing unreleased; leave no draft.
           if ! grep -q '[^[:space:]]' UNRELEASED.md 2>/dev/null; then
-            echo "Nothing unreleased — removing the draft if present."
-            gh release delete unreleased --yes --cleanup-tag 2>/dev/null || true
+            echo "Nothing unreleased — no draft created."
             exit 0
           fi
 
-          # Recreate each run so the body always matches main's HEAD. The tag
-          # 'unreleased' only materializes if the draft is ever published (it
+          # Create one fresh draft whose body matches main's HEAD. The tag
+          # 'unreleased' only materializes if a draft is ever published (it
           # isn't), so this leaves no stray tags.
-          gh release delete unreleased --yes --cleanup-tag 2>/dev/null || true
           gh release create unreleased \
             --draft \
             --title "🚧 Unreleased (main @ ${GITHUB_SHA:0:7})" \
             --notes-file UNRELEASED.md \
             --target "${GITHUB_SHA}"
 
-          echo "Draft 'unreleased' updated."
+          echo "Draft 'unreleased' refreshed at ${GITHUB_SHA:0:7}."
