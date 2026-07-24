@@ -3,11 +3,58 @@
 //! them on a background thread/executor, never the UI thread.
 
 use std::io;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::Value;
 
 use super::{GhError, GithubTransport, TokenSource};
+
+/// A hung `gh` (network black hole) must never freeze the data layer: with
+/// no timeout, `syncing` stays true forever and the refresh dedup silently
+/// blocks every future fetch including the `r` key. Kill and surface it.
+const GRAPHQL_TIMEOUT: Duration = Duration::from_secs(60);
+const QUICK_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// `Command::output()` with a watchdog: a helper thread SIGKILLs the child
+/// (via `kill -9 <pid>`, no extra deps) if it outlives `timeout`. Output is
+/// still collected by `wait_with_output`, so pipes drain normally.
+fn output_with_timeout(cmd: &mut Command, timeout: Duration) -> Result<Output, GhError> {
+    let child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|e| classify_spawn_error(&e))?;
+    let pid = child.id();
+    let done = Arc::new(AtomicBool::new(false));
+    let done_flag = done.clone();
+    let watchdog = std::thread::spawn(move || {
+        let step = Duration::from_millis(100);
+        let mut waited = Duration::ZERO;
+        while waited < timeout {
+            if done_flag.load(Ordering::Relaxed) {
+                return false;
+            }
+            std::thread::sleep(step);
+            waited += step;
+        }
+        let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+        true
+    });
+    let out = child.wait_with_output();
+    done.store(true, Ordering::Relaxed);
+    let killed = watchdog.join().unwrap_or(false);
+    if killed {
+        return Err(GhError::Network(format!(
+            "gh timed out after {}s — killed",
+            timeout.as_secs()
+        )));
+    }
+    out.map_err(|e| GhError::Network(e.to_string()))
+}
 
 /// Locate `gh`. Apps launched from Spotlight/Finder inherit a minimal PATH
 /// (`/usr/bin:/bin`) that misses Homebrew, so a bare "gh" only works from a
@@ -60,7 +107,7 @@ impl GithubTransport for GhCliTransport {
         for (k, v) in variables {
             cmd.arg("-f").arg(format!("{k}={v}"));
         }
-        let out = cmd.output().map_err(|e| classify_spawn_error(&e))?;
+        let out = output_with_timeout(&mut cmd, GRAPHQL_TIMEOUT)?;
 
         let stdout = String::from_utf8_lossy(&out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -122,10 +169,10 @@ impl Default for GhCliTokenSource {
 
 impl TokenSource for GhCliTokenSource {
     fn token(&self) -> Result<String, GhError> {
-        let out = Command::new(&self.gh_path)
-            .args(["auth", "token"])
-            .output()
-            .map_err(|e| classify_spawn_error(&e))?;
+        let out = output_with_timeout(
+            Command::new(&self.gh_path).args(["auth", "token"]),
+            QUICK_TIMEOUT,
+        )?;
         if !out.status.success() {
             return Err(GhError::NotAuthenticated);
         }
@@ -170,7 +217,7 @@ pub fn list_repos(limit: u32) -> Result<Vec<String>, GhError> {
 }
 
 fn run_gh_line(cmd: &mut Command) -> Result<String, GhError> {
-    let out = cmd.output().map_err(|e| classify_spawn_error(&e))?;
+    let out = output_with_timeout(cmd, QUICK_TIMEOUT)?;
     if !out.status.success() {
         return Err(classify_failure(&String::from_utf8_lossy(&out.stderr)));
     }

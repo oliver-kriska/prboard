@@ -96,6 +96,14 @@ Build ONE walking skeleton in **GPUI + gpui-component** (the framework is decide
 > 1. **No timeout on the `gh` subprocess** — a network-hung `gh` leaves `syncing=true` forever; the dedup in `refresh()` then blocks all future refreshes AND the `r` key. Silent permanent freeze of the data layer; only restart recovers. Fix: spawn+poll with a ~60 s kill → visible error. (Same failure class as the post-mortem's unclamped waits, one layer down.)
 > 2. **"synced Xm ago" staleness** — the label renders only on notify, so between refreshes it can be wrong by up to a full interval ("just now" for 5 min). Fix: ~60 s `cx.notify()` tick — but this changes idle behavior, so land it only AFTER the gate verdict and re-check idle GPU/CPU.
 > 3. **In-app state doesn't persist** (Spotlight-first ergonomics): no `mode` key in config; `t`/`v` choices and window bounds reset on relaunch; config edits need a relaunch (consider re-reading config on refresh).
+>
+> **Feature roadmap from the 2026-07-24 external review (ordered; all post-gate):**
+> 1. **View 1 "All open PRs" is MISSING and is decided v1 scope** (UX spec §2 — three views; only authored+review exist, `v` toggles two). Needs a `Mode::AllOpen` in core: search `repo:X is:pr is:open`, flat newest-first, author column, and a Note semantics decision for other people's PRs (the prototype never defined one — the spec's "situational awareness" framing suggests state-descriptions, not imperatives). Must land before v1.
+> 2. **"Changed since last look" indicators** — track `updatedAt` per PR between refreshes (field must be ADDED to the GraphQL query — currently not fetched; goldens unaffected, jq selects its own fields); changed rows get a subtle marker cleared on selection. The feature that turns a status table into a glanceable dashboard.
+> 3. **Group header rows with counts** ("Needs action (14)" …) — replaces the tint as the category-banding answer. Nontrivial: delegate must map row_ix → Header|Pr, and Table's internal selection must skip header rows — check what 0.5.1 allows before promising it.
+> 4. **Filters + `/` quick-find** — fuzzy title/issue/author + CI-fail/conflict/draft toggles (author filter is the daily driver for View 1).
+> 5. **Dock badge with action count** (r2 UX doc: feasible).
+> Deliberately NOT yet: notifications (needs #2 first; easy to make annoying), any write actions (v2 line).
 
 **Step 1 — Walking skeleton (framework chosen).**
 Data layer first, framework-independent: `GithubTransport` trait + `GhCliTransport`, the GraphQL query, serde structs, and the `Pr → BoardRow` derive (category, ci, reviewState, unresolved, note). Unit-test the categorization against the prototype's output. Then a static one-tab render of a `Vec<BoardRow>`.

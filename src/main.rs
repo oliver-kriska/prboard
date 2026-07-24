@@ -25,7 +25,8 @@ Repo resolution: --repo, else $PRBOARD_REPO, else `repo` in
 (via `gh repo view`). Requires an authenticated `gh`.
 
 Config file (~/.config/prboard/config.toml): repo, repos = [..] for the
-repo picker, refresh_secs, theme, default_reviewers, [issue_link].
+repo picker, refresh_secs, theme, view, default_reviewers, [issue_link],
+[window]. Repo/theme/view/window-size changes made in-app are saved back.
 Env vars override the file:
   PRBOARD_REPO                 owner/name
   PRBOARD_REFRESH_SECS         refresh interval (default 300, floor 30)
@@ -34,14 +35,14 @@ Env vars override the file:
   PRBOARD_ISSUE_URL_TEMPLATE   e.g. https://linear.app/acme/issue/{id}
   PRBOARD_DEFAULT_REVIEWERS    comma-separated logins for the no-reviewer note";
 
-fn parse_args() -> Result<(Option<String>, Mode), String> {
+fn parse_args() -> Result<(Option<String>, Option<Mode>), String> {
     let mut repo = None;
-    let mut mode = Mode::Authored;
+    let mut mode = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--repo" => repo = Some(args.next().ok_or("--repo needs owner/name")?),
-            "--review" => mode = Mode::Review,
+            "--review" => mode = Some(Mode::Review),
             "-h" | "--help" => return Err(USAGE.to_string()),
             other => return Err(format!("unknown arg: {other}\n\n{USAGE}")),
         }
@@ -80,7 +81,7 @@ fn board_config(file: &config::FileConfig) -> BoardConfig {
 }
 
 fn main() {
-    let (repo_arg, mode) = match parse_args() {
+    let (repo_arg, mode_arg) = match parse_args() {
         Ok(parsed) => parsed,
         Err(msg) => {
             eprintln!("{msg}");
@@ -89,6 +90,11 @@ fn main() {
     };
 
     let file = config::load();
+    // --review > persisted `view` in config > authored.
+    let mode = mode_arg.unwrap_or(match file.view.as_deref() {
+        Some("review") => Mode::Review,
+        _ => Mode::Authored,
+    });
 
     // Resolve repo + login up front (CLI phase, before any window exists) so
     // auth/setup problems surface as plain terminal messages.
@@ -131,15 +137,21 @@ fn main() {
         refresh: crate::state::refresh_interval(file.refresh_secs),
         repos,
     };
+    let window_pref = file.window;
 
     Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         gpui_component::init(cx);
         cx.activate(true);
 
+        // Persisted size from the last session, else the default that fits
+        // the authored column set (~1430px — at 1280 the Note column, the
+        // product, was clipped by the viewport edge).
+        let win_size = match &window_pref {
+            Some(w) => size(px(w.width.max(900.)), px(w.height.max(560.))),
+            None => size(px(1440.), px(860.)),
+        };
         let options = WindowOptions {
-            // 1440 wide: the authored column set sums to ~1430 — at 1280 the
-            // Note column (the product) was clipped by the viewport edge.
-            window_bounds: Some(WindowBounds::centered(size(px(1440.), px(860.)), cx)),
+            window_bounds: Some(WindowBounds::centered(win_size, cx)),
             // Transparent native chrome: the app's own header row IS the
             // titlebar (traffic lights overlay it), like Zed/modern Mac apps.
             titlebar: Some(gpui_component::TitleBar::title_bar_options()),

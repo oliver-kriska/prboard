@@ -24,6 +24,16 @@ pub struct Launch {
     pub repos: Vec<String>,
 }
 
+/// Persist the current window size so the next launch opens the same way.
+/// Only the plain-windowed size — maximized/fullscreen store their restore
+/// size, which is what we'd want back anyway.
+fn save_window_size(window: &Window) {
+    let (gpui::WindowBounds::Windowed(bounds)
+    | gpui::WindowBounds::Maximized(bounds)
+    | gpui::WindowBounds::Fullscreen(bounds)) = window.window_bounds();
+    crate::config::persist_window(bounds.size.width.into(), bounds.size.height.into());
+}
+
 pub struct RootView {
     state: Entity<AppState>,
     table: Entity<TableState<BoardTableDelegate>>,
@@ -73,6 +83,7 @@ impl RootView {
                         return;
                     };
                     let repo = repo.clone();
+                    crate::config::persist_str("repo", &repo);
                     this.state.update(cx, |s, cx| s.switch_repo(repo, cx));
                 },
             )
@@ -120,6 +131,28 @@ impl RootView {
 
         // Arrow keys belong to the table's own key context.
         table.focus_handle(cx).focus(window);
+
+        // Remember the window size across sessions (red traffic light path;
+        // the `q` key saves too).
+        window.on_window_should_close(cx, |window, _cx| {
+            save_window_size(window);
+            true
+        });
+
+        // The "synced Xm ago" label renders only on notify — without a slow
+        // tick it can claim "just now" for a whole refresh interval. One
+        // frame a minute; nothing animates.
+        let ticker = cx.entity().downgrade();
+        cx.spawn(async move |_this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(60)).await;
+                let Some(view) = ticker.upgrade() else { break };
+                if view.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         let this = Self {
             state,
@@ -171,7 +204,10 @@ impl RootView {
         let key = event.keystroke.key.as_str();
         let platform = event.keystroke.modifiers.platform;
         match key {
-            "q" => cx.quit(),
+            "q" => {
+                save_window_size(window);
+                cx.quit();
+            }
             "r" => self.state.update(cx, |s, cx| s.refresh(cx)),
             "v" if !platform => {
                 self.state.update(cx, |s, cx| s.switch_mode(cx));
@@ -180,10 +216,18 @@ impl RootView {
                     table.delegate_mut().set_mode(mode);
                     table.refresh(cx);
                 });
+                crate::config::persist_str(
+                    "view",
+                    match mode {
+                        prboard_core::board::Mode::Authored => "authored",
+                        prboard_core::board::Mode::Review => "review",
+                    },
+                );
             }
             "t" if !platform => {
                 self.theme_pref = self.theme_pref.next();
                 self.theme_pref.apply(window, cx);
+                crate::config::persist_str("theme", self.theme_pref.label());
                 cx.notify();
             }
             "enter" | "o" if !platform => {
