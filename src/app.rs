@@ -173,6 +173,14 @@ impl RootView {
         match key {
             "q" => cx.quit(),
             "r" => self.state.update(cx, |s, cx| s.refresh(cx)),
+            "v" if !platform => {
+                self.state.update(cx, |s, cx| s.switch_mode(cx));
+                let mode = self.state.read(cx).mode;
+                self.table.update(cx, |table, cx| {
+                    table.delegate_mut().set_mode(mode);
+                    table.refresh(cx);
+                });
+            }
             "t" if !platform => {
                 self.theme_pref = self.theme_pref.next();
                 self.theme_pref.apply(window, cx);
@@ -266,10 +274,18 @@ impl RootView {
     fn render_footer(&self, cx: &Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let theme_label = format!("theme ({})", self.theme_pref.label());
+        let view_label = format!(
+            "view ({})",
+            match self.state.read(cx).mode {
+                prboard_core::board::Mode::Authored => "authored",
+                prboard_core::board::Mode::Review => "review",
+            }
+        );
         let hints: Vec<(&str, String)> = vec![
             ("↑↓", "select".into()),
             ("⏎", "open".into()),
             ("y", "copy".into()),
+            ("v", view_label),
             ("r", "refresh".into()),
             ("t", theme_label),
             ("q", "quit".into()),

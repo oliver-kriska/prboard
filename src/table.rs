@@ -24,8 +24,21 @@ pub struct BoardTableDelegate {
 
 impl BoardTableDelegate {
     pub fn new(mode: Mode) -> Self {
+        Self {
+            rows: Vec::new(),
+            columns: Self::columns_for(mode),
+        }
+    }
+
+    /// Rebuild the column set on an in-app mode switch (rows arrive with the
+    /// switched fetch via the generation observer).
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.columns = Self::columns_for(mode);
+    }
+
+    fn columns_for(mode: Mode) -> Vec<Column> {
         // Column sets mirror the prototype dashboard's two tables (SKILL.md).
-        let columns = match mode {
+        match mode {
             // The Note is the highest-value column — it wins width over
             // Title; both carry hover tooltips with the full text, and every
             // column is drag-resizable.
@@ -48,10 +61,6 @@ impl BoardTableDelegate {
                 Column::new("title", "Title").width(px(440.)),
                 Column::new("note", "Note").width(px(400.)),
             ],
-        };
-        Self {
-            rows: Vec::new(),
-            columns,
         }
     }
 

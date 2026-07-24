@@ -55,7 +55,8 @@ Env vars: `PRBOARD_REPO`, `PRBOARD_REFRESH_SECS`, `PRBOARD_THEME`,
 `PRBOARD_DEFAULT_REVIEWERS` (comma-separated).
 
 Keys: `↑`/`↓` select · `⏎`/`o` open PR in browser · `y` copy PR URL ·
-`r` refresh now · `t` cycle theme (system → light → dark) · `q` quit.
+`v` toggle authored/review view · `r` refresh now ·
+`t` cycle theme (system → light → dark) · `q` quit.
 Double-click a row to open it; drag column edges to resize; hover the Note,
 Title, Labels, or Reviewed-by cell for the full text.
 

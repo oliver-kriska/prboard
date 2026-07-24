@@ -18,10 +18,9 @@ pub const ROW_HEIGHT: f32 = 30.0;
 /// Documentation of what `.small()` provides, not consumed directly.
 #[allow(dead_code)]
 pub const CELL_PAD_X: f32 = 6.0;
-/// Header bar horizontal padding in px (`.px_4()`).
+/// Header bar horizontal padding in px (`.px_4()`). Vertical is owned by
+/// `TitleBar` (fixed 34 px row) since the header moved into the titlebar.
 pub const HEADER_PAD_X: f32 = 16.0;
-/// Header bar vertical padding in px.
-pub const HEADER_PAD_Y: f32 = 10.0;
 /// Keyboard-hint footer vertical padding in px (horizontal = HEADER_PAD_X).
 pub const FOOTER_PAD_Y: f32 = 6.0;
 /// Label-chip height in px (11 px medium text inside).

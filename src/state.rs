@@ -30,6 +30,9 @@ pub struct AppState {
     /// Do not fetch before this epoch second (set after a rate-limit hit,
     /// always clamped 60..900s ahead).
     backoff_until: Option<u64>,
+    /// Bumped on every repo/mode switch; an in-flight fetch from a previous
+    /// epoch must not write its (now wrong-view) results.
+    epoch: u64,
 }
 
 impl AppState {
@@ -53,6 +56,7 @@ impl AppState {
             rate: None,
             generation: 0,
             backoff_until: None,
+            epoch: 0,
         }
     }
 
@@ -63,10 +67,25 @@ impl AppState {
             return;
         }
         self.repo = repo;
+        self.reset_and_refetch(cx);
+    }
+
+    /// Toggle authored ⇄ review (the two prototype dashboards).
+    pub fn switch_mode(&mut self, cx: &mut Context<Self>) {
+        self.mode = match self.mode {
+            Mode::Authored => Mode::Review,
+            Mode::Review => Mode::Authored,
+        };
+        self.reset_and_refetch(cx);
+    }
+
+    fn reset_and_refetch(&mut self, cx: &mut Context<Self>) {
         self.rows.clear();
         self.last_synced = None;
         self.error = None;
         self.generation += 1; // observers push the (empty) rows to the table
+        self.epoch += 1; // any in-flight fetch is now for the wrong view
+        self.syncing = false; // don't let it dedup the fetch we start now
         self.refresh(cx);
         cx.notify();
     }
@@ -125,6 +144,7 @@ impl AppState {
         let me = self.me.clone();
         let mode = self.mode;
         let config = self.config.clone();
+        let epoch = self.epoch;
 
         cx.spawn(async move |this, cx| {
             let fetched = cx
@@ -140,6 +160,9 @@ impl AppState {
                 .await;
 
             let _ = this.update(cx, |state, cx| {
+                if state.epoch != epoch {
+                    return; // view switched mid-fetch; a newer fetch owns state
+                }
                 state.syncing = false;
                 match fetched {
                     Ok((rows, rate)) => {
