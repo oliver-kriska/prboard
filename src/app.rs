@@ -145,13 +145,13 @@ impl RootView {
         // tick it can claim "just now" for a whole refresh interval. One
         // frame a minute; nothing animates.
         let ticker = cx.entity().downgrade();
-        cx.spawn(async move |_this, cx| {
-            loop {
-                cx.background_executor().timer(Duration::from_secs(60)).await;
-                let Some(view) = ticker.upgrade() else { break };
-                if view.update(cx, |_, cx| cx.notify()).is_err() {
-                    break;
-                }
+        cx.spawn(async move |_this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_secs(60))
+                .await;
+            let Some(view) = ticker.upgrade() else { break };
+            if view.update(cx, |_, cx| cx.notify()).is_err() {
+                break;
             }
         })
         .detach();
@@ -451,12 +451,7 @@ impl Render for RootView {
                             // outer border + rounded corners fight the
                             // window edge (spec §5: header border is the
                             // only separator).
-                            this.child(
-                                Table::new(&self.table)
-                                    .small()
-                                    .stripe(true)
-                                    .bordered(false),
-                            )
+                            this.child(Table::new(&self.table).small().stripe(true).bordered(false))
                         } else {
                             this.child(
                                 h_flex()

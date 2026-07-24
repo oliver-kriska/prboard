@@ -150,7 +150,11 @@ impl TableDelegate for BoardTableDelegate {
             // Perceptual loudness, not numeric alpha, must match across
             // modes: 4% over white reads salmon, over near-black it vanishes.
             Some(Category::Action | Category::Todo) => {
-                let a = if cx.theme().mode.is_dark() { 0.05 } else { 0.02 };
+                let a = if cx.theme().mode.is_dark() {
+                    0.05
+                } else {
+                    0.02
+                };
                 tr.bg(cx.theme().danger.opacity(a))
             }
             // Drafts are dimmed (inactive), not tinted (different) — see the
@@ -220,8 +224,11 @@ impl TableDelegate for BoardTableDelegate {
                         } else {
                             label.clone()
                         };
-                        chips = chips
-                            .child(chip_base().text_color(theme.secondary_foreground).child(text));
+                        chips = chips.child(
+                            chip_base()
+                                .text_color(theme.secondary_foreground)
+                                .child(text),
+                        );
                     }
                     if row.labels.len() > VISIBLE {
                         chips = chips.child(

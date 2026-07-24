@@ -89,7 +89,10 @@ fn persist(update: impl FnOnce(&mut toml_edit::DocumentMut)) {
         Ok(doc) => doc,
         Err(e) => {
             // Never clobber a file we can't parse — the user's edits win.
-            eprintln!("prboard: not saving into unparseable {}: {e}", path.display());
+            eprintln!(
+                "prboard: not saving into unparseable {}: {e}",
+                path.display()
+            );
             return;
         }
     };

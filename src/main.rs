@@ -139,33 +139,36 @@ fn main() {
     };
     let window_pref = file.window;
 
-    Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
-        gpui_component::init(cx);
-        cx.activate(true);
+    Application::new()
+        .with_assets(assets::Assets)
+        .run(move |cx: &mut App| {
+            gpui_component::init(cx);
+            cx.activate(true);
 
-        // Persisted size from the last session, else the default that fits
-        // the authored column set (~1430px — at 1280 the Note column, the
-        // product, was clipped by the viewport edge).
-        let win_size = match &window_pref {
-            Some(w) => size(px(w.width.max(900.)), px(w.height.max(560.))),
-            None => size(px(1440.), px(860.)),
-        };
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::centered(win_size, cx)),
-            // Transparent native chrome: the app's own header row IS the
-            // titlebar (traffic lights overlay it), like Zed/modern Mac apps.
-            titlebar: Some(gpui_component::TitleBar::title_bar_options()),
-            window_min_size: Some(size(px(900.), px(560.))),
-            kind: WindowKind::Normal,
-            app_id: Some("dev.oliverkriska.prboard".into()),
-            ..Default::default()
-        };
+            // Persisted size from the last session, else the default that fits
+            // the authored column set (~1430px — at 1280 the Note column, the
+            // product, was clipped by the viewport edge).
+            let win_size = match &window_pref {
+                Some(w) => size(px(w.width.max(900.)), px(w.height.max(560.))),
+                None => size(px(1440.), px(860.)),
+            };
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::centered(win_size, cx)),
+                // Transparent native chrome: the app's own header row IS the
+                // titlebar (traffic lights overlay it), like Zed/modern Mac apps.
+                titlebar: Some(gpui_component::TitleBar::title_bar_options()),
+                window_min_size: Some(size(px(900.), px(560.))),
+                kind: WindowKind::Normal,
+                app_id: Some("dev.oliverkriska.prboard".into()),
+                ..Default::default()
+            };
 
-        cx.open_window(options, |window, cx| {
-            let state =
-                cx.new(|_| AppState::new(repo, me, mode, config, Arc::new(GhCliTransport::new())));
-            cx.new(|cx| RootView::new(state, launch, window, cx))
-        })
-        .expect("failed to open window");
-    });
+            cx.open_window(options, |window, cx| {
+                let state = cx.new(|_| {
+                    AppState::new(repo, me, mode, config, Arc::new(GhCliTransport::new()))
+                });
+                cx.new(|cx| RootView::new(state, launch, window, cx))
+            })
+            .expect("failed to open window");
+        });
 }
