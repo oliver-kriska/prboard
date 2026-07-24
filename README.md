@@ -80,9 +80,14 @@ theme = "system"                   # system | light | dark
 default_reviewers = ["alice", "bob"]
 
 [issue_link]
-pattern = "ENA-[0-9]+"             # ticket id regex matched in PR titles
+pattern = "PROJ-[0-9]+"            # ticket id regex matched in PR titles
 url_template = "https://linear.app/acme/issue/{id}"
 ```
+
+Issue links are optional and tracker-agnostic. `pattern` can match any ticket
+format and `url_template` can point to Linear, Jira, or a custom tracker; `{id}`
+is replaced with the matched identifier. No project prefix or tracker URL is
+built into prboard.
 
 Env vars: `PRBOARD_REPO`, `PRBOARD_REFRESH_SECS`, `PRBOARD_THEME`,
 `PRBOARD_ISSUE_PATTERN` + `PRBOARD_ISSUE_URL_TEMPLATE`,

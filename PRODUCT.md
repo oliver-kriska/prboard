@@ -31,7 +31,7 @@ open source" means polish budget goes to the one table, not to breadth.
 
 **Calm · native · exact.** The tool should disappear into the task (product register). Emotional
 goal: quiet confidence — the board is trusted precisely because it never exaggerates. Voice in copy
-is lowercase-terse ("synced 2m ago", "no reviewers — assign mkurkov"): declarative, no exclamation,
+is lowercase-terse ("synced 2m ago", "no reviewers — assign alice"): declarative, no exclamation,
 no mascot. The single permitted emoji is 🐛 on the bug label (semantic, a product decision).
 
 ## Anti-references
