@@ -1,7 +1,8 @@
-# VERBATIM from the prototype ~/.claude/skills/pr-board/scripts/pr-board.sh
-# (--review / Mode B branch), 2026-07-24. This is the behavioral spec the Rust
-# port in core/src/board.rs must reproduce — do not "improve" it here.
-# Args: --arg repo owner/name --arg me login
+# Sanitized parity oracle derived from the review branch of the shell prototype.
+# Keep its categorization behavior in sync with the prototype while passing
+# tracker-specific values as fictional test arguments.
+# Args: --arg repo owner/name --arg me login --arg issue_pattern regex
+#       --arg issue_url_template URL-with-{id}
 [ .data.search.nodes[]
   | ([.labels.nodes[].name] | index("bug")) as $bug
   | ([.reviewThreads.nodes[] | select(.isResolved==false)] | length) as $unres
@@ -13,13 +14,13 @@
   | (if .isDraft then "draft"
      elif ($mine=="APPROVED" or $mine=="COMMENTED" or $mine=="CHANGES_REQUESTED") then "done"
      else "todo" end) as $cat
-  | ((.title | capture("(?<e>ENA-[0-9]+)").e) // null) as $ena
+  | ((.title | capture("(?<issue>" + $issue_pattern + ")").issue) // null) as $issue
   | {
       number: .number,
       url: "https://github.com/\($repo)/pull/\(.number)",
-      title: (.title | gsub("^WIP\\s*";"") | gsub("^\\[ENA-[0-9]+\\]\\s*";"")),
-      issue: $ena,
-      issueUrl: (if $ena then "https://linear.app/enaia-dev/issue/\($ena)" else null end),
+      title: (.title | gsub("^WIP\\s*";"") | gsub("^\\[" + $issue_pattern + "\\]\\s*";"")),
+      issue: $issue,
+      issueUrl: (if $issue then ($issue_url_template | gsub("\\{id\\}"; $issue)) else null end),
       author: .author.login,
       draft: .isDraft,
       category: $cat,

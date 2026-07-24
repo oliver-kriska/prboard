@@ -9,7 +9,7 @@
           "reviewDecision": "APPROVED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-18T09:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
@@ -27,12 +27,12 @@
           "reviewDecision": "REVIEW_REQUIRED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-19T09:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": {
             "nodes": [
-              { "requestedReviewer": { "__typename": "User", "login": "mkurkov" } },
-              { "requestedReviewer": { "__typename": "User", "login": "abs" } }
+              { "requestedReviewer": { "__typename": "User", "login": "alice" } },
+              { "requestedReviewer": { "__typename": "User", "login": "bob" } }
             ]
           },
           "reviews": { "nodes": [] },
@@ -46,7 +46,7 @@
           "reviewDecision": null,
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-20T09:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": { "nodes": [] },
@@ -60,7 +60,7 @@
           "reviewDecision": "REVIEW_REQUIRED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-20T10:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [{ "name": "infra" }] },
           "reviewRequests": {
             "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "bob" } }]
@@ -83,7 +83,7 @@
           "reviewDecision": "CHANGES_REQUESTED",
           "mergeable": "CONFLICTING",
           "createdAt": "2026-07-20T11:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
@@ -101,7 +101,7 @@
           "reviewDecision": null,
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-21T09:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": { "nodes": [] },
@@ -115,7 +115,7 @@
           "reviewDecision": null,
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-21T10:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": { "nodes": [] },
@@ -124,19 +124,19 @@
         },
         {
           "number": 108,
-          "title": "WIP [ENA-1234] Fix the crash in parser",
+          "title": "WIP [PROJ-1234] Fix the crash in parser",
           "isDraft": false,
           "reviewDecision": null,
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-21T11:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [{ "name": "bug" }, { "name": "backend" }] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
             "nodes": [
               { "author": { "login": "github-actions" }, "state": "COMMENTED", "submittedAt": "2026-07-21T12:00:00Z" },
               { "author": { "login": "chatgpt-codex-connector" }, "state": "COMMENTED", "submittedAt": "2026-07-21T12:05:00Z" },
-              { "author": { "login": "oliver" }, "state": "COMMENTED", "submittedAt": "2026-07-21T12:10:00Z" }
+              { "author": { "login": "me" }, "state": "COMMENTED", "submittedAt": "2026-07-21T12:10:00Z" }
             ]
           },
           "reviewThreads": { "nodes": [] },
@@ -149,7 +149,7 @@
           "reviewDecision": "APPROVED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-22T09:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
@@ -168,7 +168,7 @@
           "reviewDecision": "APPROVED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-22T10:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
@@ -187,7 +187,7 @@
           "reviewDecision": "REVIEW_REQUIRED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-23T09:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": {
             "nodes": [
@@ -210,7 +210,7 @@
           "reviewDecision": "APPROVED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-23T11:00:00Z",
-          "author": { "login": "oliver" },
+          "author": { "login": "me" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {

@@ -9,10 +9,10 @@
           "reviewDecision": "REVIEW_REQUIRED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-18T09:00:00Z",
-          "author": { "login": "petra" },
+          "author": { "login": "alice" },
           "labels": { "nodes": [] },
           "reviewRequests": {
-            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "me" } }]
           },
           "reviews": { "nodes": [] },
           "reviewThreads": { "nodes": [] },
@@ -25,12 +25,12 @@
           "reviewDecision": "APPROVED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-19T09:00:00Z",
-          "author": { "login": "tomas" },
+          "author": { "login": "bob" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
             "nodes": [
-              { "author": { "login": "oliver" }, "state": "APPROVED", "submittedAt": "2026-07-20T10:00:00Z" },
+              { "author": { "login": "me" }, "state": "APPROVED", "submittedAt": "2026-07-20T10:00:00Z" },
               { "author": { "login": "alice" }, "state": "COMMENTED", "submittedAt": "2026-07-20T11:00:00Z" }
             ]
           },
@@ -39,15 +39,15 @@
         },
         {
           "number": 203,
-          "title": "[ENA-9600] Fix ReminderBadge remove-reminder KeyError",
+          "title": "[PROJ-9600] Fix notification badge removal error",
           "isDraft": false,
           "reviewDecision": "REVIEW_REQUIRED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-20T09:00:00Z",
-          "author": { "login": "petra" },
+          "author": { "login": "alice" },
           "labels": { "nodes": [{ "name": "bug" }] },
           "reviewRequests": {
-            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "me" } }]
           },
           "reviews": { "nodes": [] },
           "reviewThreads": { "nodes": [{ "isResolved": false }] },
@@ -60,10 +60,10 @@
           "reviewDecision": "REVIEW_REQUIRED",
           "mergeable": "CONFLICTING",
           "createdAt": "2026-07-20T10:00:00Z",
-          "author": { "login": "jana" },
+          "author": { "login": "carol" },
           "labels": { "nodes": [{ "name": "bug" }] },
           "reviewRequests": {
-            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "me" } }]
           },
           "reviews": { "nodes": [] },
           "reviewThreads": { "nodes": [] },
@@ -76,10 +76,10 @@
           "reviewDecision": null,
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-21T09:00:00Z",
-          "author": { "login": "tomas" },
+          "author": { "login": "bob" },
           "labels": { "nodes": [] },
           "reviewRequests": {
-            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "oliver" } }]
+            "nodes": [{ "requestedReviewer": { "__typename": "User", "login": "me" } }]
           },
           "reviews": { "nodes": [] },
           "reviewThreads": { "nodes": [] },
@@ -92,13 +92,13 @@
           "reviewDecision": "REVIEW_REQUIRED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-21T10:00:00Z",
-          "author": { "login": "petra" },
+          "author": { "login": "alice" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
             "nodes": [
-              { "author": { "login": "oliver" }, "state": "CHANGES_REQUESTED", "submittedAt": "2026-07-22T10:00:00Z" },
-              { "author": { "login": "oliver" }, "state": "COMMENTED", "submittedAt": "2026-07-23T10:00:00Z" }
+              { "author": { "login": "me" }, "state": "CHANGES_REQUESTED", "submittedAt": "2026-07-22T10:00:00Z" },
+              { "author": { "login": "me" }, "state": "COMMENTED", "submittedAt": "2026-07-23T10:00:00Z" }
             ]
           },
           "reviewThreads": { "nodes": [{ "isResolved": false }, { "isResolved": true }] },
@@ -111,12 +111,12 @@
           "reviewDecision": "CHANGES_REQUESTED",
           "mergeable": "MERGEABLE",
           "createdAt": "2026-07-22T09:00:00Z",
-          "author": { "login": "marek" },
+          "author": { "login": "dave" },
           "labels": { "nodes": [] },
           "reviewRequests": { "nodes": [] },
           "reviews": {
             "nodes": [
-              { "author": { "login": "oliver" }, "state": "CHANGES_REQUESTED", "submittedAt": "2026-07-22T12:00:00Z" }
+              { "author": { "login": "me" }, "state": "CHANGES_REQUESTED", "submittedAt": "2026-07-22T12:00:00Z" }
             ]
           },
           "reviewThreads": { "nodes": [{ "isResolved": false }] },

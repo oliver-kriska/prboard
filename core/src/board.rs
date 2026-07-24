@@ -97,8 +97,8 @@ pub struct ReviewSummary {
 }
 
 /// Optional "linked ticket" extraction: a pattern matched against the PR
-/// title and a URL template with an `{id}` placeholder. Never hard-code a
-/// tracker (the prototype's `ENA-`/Linear pair becomes user config).
+/// title and a URL template with an `{id}` placeholder. Project prefixes and
+/// tracker URLs always come from user config.
 #[derive(Debug, Clone)]
 pub struct IssueLinkRule {
     pattern: Regex,
@@ -451,9 +451,9 @@ mod tests {
 
     fn cfg() -> BoardConfig {
         BoardConfig {
-            default_reviewers: vec!["mkurkov".into(), "abs".into()],
+            default_reviewers: vec!["alice".into(), "bob".into()],
             issue_link: Some(
-                IssueLinkRule::new("ENA-[0-9]+", "https://linear.app/enaia-dev/issue/{id}")
+                IssueLinkRule::new("PROJ-[0-9]+", "https://tracker.example.test/issues/{id}")
                     .unwrap(),
             ),
             ..Default::default()
@@ -472,7 +472,7 @@ mod tests {
             "reviewDecision": null,
             "mergeable": "MERGEABLE",
             "createdAt": "2026-07-20T10:00:00Z",
-            "author": {"login": "oliver"},
+            "author": {"login": "me"},
             "labels": {"nodes": []},
             "reviewRequests": {"nodes": []},
             "reviews": {"nodes": []},
@@ -482,7 +482,7 @@ mod tests {
     }
 
     fn derive_one(v: serde_json::Value, mode: Mode) -> BoardRow {
-        derive_rows(&[pr(v)], mode, "acme/widgets", "oliver", &cfg())
+        derive_rows(&[pr(v)], mode, "acme/widgets", "me", &cfg())
             .into_iter()
             .next()
             .unwrap()
@@ -493,7 +493,28 @@ mod tests {
         let row = derive_one(base(1), Mode::Authored);
         assert_eq!(row.category, Category::Action);
         assert_eq!(row.review_state, ReviewState::None);
-        assert_eq!(row.note, "⚠️ no reviewers — assign mkurkov + abs");
+        assert_eq!(row.note, "⚠️ no reviewers — assign alice + bob");
+    }
+
+    #[test]
+    fn defaults_are_organization_and_tracker_agnostic() {
+        let mut v = base(14);
+        v["title"] = json!("[PROJ-1234] Fix the crash");
+        let row = derive_rows(
+            &[pr(v)],
+            Mode::Authored,
+            "acme/widgets",
+            "me",
+            &BoardConfig::default(),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+
+        assert!(row.issue.is_none());
+        assert!(row.issue_url.is_none());
+        assert_eq!(row.title, "[PROJ-1234] Fix the crash");
+        assert_eq!(row.note, "⚠️ no reviewers");
     }
 
     #[test]
@@ -535,7 +556,7 @@ mod tests {
         assert_eq!(row.category, Category::Action);
         assert_eq!(
             row.note,
-            "⚠️ no reviewers — assign mkurkov + abs · 🔴 merge conflict — rebase · \
+            "⚠️ no reviewers — assign alice + bob · 🔴 merge conflict — rebase · \
              ❌ CI failing · ✋ changes requested · 🟡 2 unresolved comments"
         );
     }
@@ -559,7 +580,7 @@ mod tests {
         v["reviews"]["nodes"] = json!([
             {"author": {"login": "github-actions"}, "state": "COMMENTED", "submittedAt": "2026-07-21T09:00:00Z"},
             {"author": {"login": "chatgpt-codex-connector"}, "state": "COMMENTED", "submittedAt": "2026-07-21T09:05:00Z"},
-            {"author": {"login": "oliver"}, "state": "COMMENTED", "submittedAt": "2026-07-21T09:10:00Z"}
+            {"author": {"login": "me"}, "state": "COMMENTED", "submittedAt": "2026-07-21T09:10:00Z"}
         ]);
         let row = derive_one(v, Mode::Authored);
         assert!(row.reviews.is_empty());
@@ -602,12 +623,12 @@ mod tests {
     #[test]
     fn title_issue_extraction_and_stripping() {
         let mut v = base(8);
-        v["title"] = json!("WIP [ENA-1234] Fix the crash");
+        v["title"] = json!("WIP [PROJ-1234] Fix the crash");
         let row = derive_one(v, Mode::Authored);
-        assert_eq!(row.issue.as_deref(), Some("ENA-1234"));
+        assert_eq!(row.issue.as_deref(), Some("PROJ-1234"));
         assert_eq!(
             row.issue_url.as_deref(),
-            Some("https://linear.app/enaia-dev/issue/ENA-1234")
+            Some("https://tracker.example.test/issues/PROJ-1234")
         );
         assert_eq!(row.title, "Fix the crash");
     }
@@ -639,7 +660,7 @@ mod tests {
     fn review_mode_categories_and_notes() {
         // Not yet reviewed, green.
         let mut v = base(20);
-        v["author"] = json!({"login": "petra"});
+        v["author"] = json!({"login": "alice"});
         let row = derive_one(v.clone(), Mode::Review);
         assert_eq!(row.category, Category::Todo);
         assert_eq!(row.my_review.as_deref(), Some("NONE"));
@@ -657,7 +678,7 @@ mod tests {
         v["commits"]["nodes"] = json!([{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]);
         v["mergeable"] = json!("MERGEABLE");
         v["reviews"]["nodes"] = json!([
-            {"author": {"login": "oliver"}, "state": "APPROVED", "submittedAt": "2026-07-21T10:00:00Z"}
+            {"author": {"login": "me"}, "state": "APPROVED", "submittedAt": "2026-07-21T10:00:00Z"}
         ]);
         let row = derive_one(v.clone(), Mode::Review);
         assert_eq!(row.category, Category::Done);
@@ -687,24 +708,24 @@ mod tests {
             mk(12, true, false),
             mk(13, false, false),
         ];
-        let authored = derive_rows(&prs, Mode::Authored, "acme/widgets", "oliver", &cfg());
+        let authored = derive_rows(&prs, Mode::Authored, "acme/widgets", "me", &cfg());
         let order: Vec<u64> = authored.iter().map(|r| r.number).collect();
         assert_eq!(order, vec![13, 10, 11, 12]); // action desc, then await, then draft
 
-        // Review mode: 10,13 todo (asc), 11 done (oliver didn't review → todo!, alice did)
+        // Review mode: todo rows sort ascending, followed by rows I reviewed.
         // — for review-mode sorting use my own reviews instead:
         let mk_r = |n: u64, mine: bool| {
             let mut v = base(n);
-            v["author"] = json!({"login": "petra"});
+            v["author"] = json!({"login": "alice"});
             if mine {
                 v["reviews"]["nodes"] = json!([
-                    {"author": {"login": "oliver"}, "state": "APPROVED", "submittedAt": "2026-07-21T10:00:00Z"}
+                    {"author": {"login": "me"}, "state": "APPROVED", "submittedAt": "2026-07-21T10:00:00Z"}
                 ]);
             }
             pr(v)
         };
         let prs = vec![mk_r(31, true), mk_r(30, false), mk_r(28, false)];
-        let review = derive_rows(&prs, Mode::Review, "acme/widgets", "oliver", &cfg());
+        let review = derive_rows(&prs, Mode::Review, "acme/widgets", "me", &cfg());
         let order: Vec<u64> = review.iter().map(|r| r.number).collect();
         assert_eq!(order, vec![28, 30, 31]); // todo asc, then done
     }
@@ -712,7 +733,7 @@ mod tests {
     #[test]
     fn rows_are_bounded() {
         let prs: Vec<RawPr> = (0..100).map(|n| pr(base(n))).collect();
-        let rows = derive_rows(&prs, Mode::Authored, "acme/widgets", "oliver", &cfg());
+        let rows = derive_rows(&prs, Mode::Authored, "acme/widgets", "me", &cfg());
         assert_eq!(rows.len(), MAX_BOARD_ROWS);
     }
 }

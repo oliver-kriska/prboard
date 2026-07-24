@@ -25,8 +25,8 @@
     "number": 108,
     "url": "https://github.com/acme/widgets/pull/108",
     "title": "Fix the crash in parser",
-    "issue": "ENA-1234",
-    "issueUrl": "https://linear.app/enaia-dev/issue/ENA-1234",
+    "issue": "PROJ-1234",
+    "issueUrl": "https://tracker.example.test/issues/PROJ-1234",
     "draft": false,
     "category": "action",
     "bug": true,
@@ -182,8 +182,8 @@
     "reviewDecision": "REVIEW_REQUIRED",
     "reviewState": "waiting",
     "requested": [
-      "mkurkov",
-      "abs"
+      "alice",
+      "bob"
     ],
     "reviews": [],
     "unresolved": 0
