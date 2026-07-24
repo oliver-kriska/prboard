@@ -91,6 +91,11 @@ Build ONE walking skeleton in **GPUI + gpui-component** (the framework is decide
 > Also landed same round: **custom transparent titlebar** (user-requested) — gpui-component's `TitleBar` wraps the header row, traffic lights overlay the app's own chrome (drag + double-click-zoom included).
 >
 > The Step-0 memory gate still decides Step 1+. Verification gotcha for future sessions: GPUI skips repainting occluded windows — screenshot checks MUST bring the window frontmost first or they capture a stale first frame (looks like a hung fetch; it isn't).
+>
+> **Discovered gaps to fix (2026-07-24 retro, not yet implemented):**
+> 1. **No timeout on the `gh` subprocess** — a network-hung `gh` leaves `syncing=true` forever; the dedup in `refresh()` then blocks all future refreshes AND the `r` key. Silent permanent freeze of the data layer; only restart recovers. Fix: spawn+poll with a ~60 s kill → visible error. (Same failure class as the post-mortem's unclamped waits, one layer down.)
+> 2. **"synced Xm ago" staleness** — the label renders only on notify, so between refreshes it can be wrong by up to a full interval ("just now" for 5 min). Fix: ~60 s `cx.notify()` tick — but this changes idle behavior, so land it only AFTER the gate verdict and re-check idle GPU/CPU.
+> 3. **In-app state doesn't persist** (Spotlight-first ergonomics): no `mode` key in config; `t`/`v` choices and window bounds reset on relaunch; config edits need a relaunch (consider re-reading config on refresh).
 
 **Step 1 — Walking skeleton (framework chosen).**
 Data layer first, framework-independent: `GithubTransport` trait + `GhCliTransport`, the GraphQL query, serde structs, and the `Pr → BoardRow` derive (category, ci, reviewState, unresolved, note). Unit-test the categorization against the prototype's output. Then a static one-tab render of a `Vec<BoardRow>`.
