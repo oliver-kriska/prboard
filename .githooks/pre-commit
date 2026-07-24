@@ -1,0 +1,35 @@
+#!/bin/sh
+# prboard pre-commit hook — the fast quality gate (fmt + core clippy + core test).
+# Mirrors CI. Runs only when Rust/Cargo files are staged, so docs-only commits
+# (CLAUDE.md, HANDOFF.md, …) stay instant.
+#
+# Bypass:  git commit --no-verify   |   PRBOARD_SKIP_HOOKS=1 git commit …
+# Install: make hooks   (sets core.hooksPath to .githooks)
+
+set -eu
+
+if [ -n "${PRBOARD_SKIP_HOOKS:-}" ]; then
+  echo "pre-commit: skipped (PRBOARD_SKIP_HOOKS set)"
+  exit 0
+fi
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if ! printf '%s\n' "$staged" | grep -qE '\.rs$|(^|/)Cargo\.(toml|lock)$'; then
+  echo "pre-commit: no Rust changes staged — skipping fmt/clippy/test"
+  exit 0
+fi
+
+echo "pre-commit: cargo fmt --check"
+if ! cargo fmt --check; then
+  echo >&2
+  echo "  Formatting issues above. Run 'make fmt' and re-stage." >&2
+  exit 1
+fi
+
+echo "pre-commit: cargo clippy -p prboard-core -D warnings"
+cargo clippy -p prboard-core --all-targets -- -D warnings
+
+echo "pre-commit: cargo test -p prboard-core"
+cargo test -p prboard-core --quiet
+
+echo "pre-commit: OK"

@@ -1,0 +1,27 @@
+#!/bin/sh
+# prboard commit-msg hook — advisory Conventional Commits check.
+#
+# WARNS (never blocks) when the subject isn't a Conventional Commit, so the
+# git-cliff changelog can file it under Features / Bug Fixes / Docs / … instead
+# of the catch-all "Other". Bypass with: git commit --no-verify
+#
+# Install: make hooks
+
+msg_file="$1"
+subject=$(head -1 "$msg_file")
+
+# Ignore merges, reverts, fixups, and empty/comment-only subjects.
+case "$subject" in
+  "" | "#"* | "Merge "* | "Revert "* | "fixup! "* | "squash! "*) exit 0 ;;
+esac
+
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|deps|revert)(\([a-z0-9_.-]+\))?!?: .+'
+if printf '%s' "$subject" | grep -qE "$pattern"; then
+  exit 0
+fi
+
+echo "commit-msg: heads up — subject isn't a Conventional Commit:" >&2
+echo "    \"$subject\"" >&2
+echo "  Prefer  feat: … / fix: … / docs: … / chore: …  so it groups in CHANGELOG.md." >&2
+echo "  (advisory only — the commit will still be created)" >&2
+exit 0

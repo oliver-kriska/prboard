@@ -110,6 +110,31 @@ cargo test -p prboard-core   # categorization/Note parity + unit tests
 cargo clippy --all-targets
 ```
 
+## Development
+
+`make help` lists everything. The quality gate is fast because `prboard-core`
+has no GPUI/Metal dependency — only the app binary does.
+
+```sh
+make check     # fmt --check + clippy(core) + test(core) — exactly what CI runs
+make fix       # auto-format and apply the auto-fixable clippy lints
+make build     # debug build of the GPUI app (needs the Metal Toolchain)
+make hooks     # install the git pre-commit + commit-msg hooks (one-time)
+```
+
+- **Pre-commit hook** runs the same `check` gate, but only when Rust/Cargo files
+  are staged (docs-only commits stay instant). Bypass with `git commit
+  --no-verify` or `PRBOARD_SKIP_HOOKS=1`.
+- **CI** (`.github/workflows/ci.yml`) runs `fmt --check` and clippy+test on
+  `prboard-core` for every push and PR to `main`. The GPUI binary is not built
+  in CI — build it locally with `make build`.
+- **Conventional Commits** (`feat:`, `fix:`, `docs:`, `chore:`, …) are grouped
+  into [`CHANGELOG.md`](CHANGELOG.md) by [git-cliff](https://git-cliff.org); the
+  `commit-msg` hook nudges (never blocks) toward them. A **draft "Unreleased"
+  GitHub release** is kept in sync with everything on `main` that isn't in the
+  latest tag — or run `make unreleased` to see it locally. `make changelog`
+  regenerates `CHANGELOG.md` when cutting a release.
+
 ## The Step-0 memory gate
 
 GPUI is validated, not assumed: the skeleton must hold **flat RSS < ~150 MB

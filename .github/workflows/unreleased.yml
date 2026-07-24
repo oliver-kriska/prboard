@@ -1,0 +1,66 @@
+name: Unreleased
+
+# Keeps a draft GitHub release named "unreleased" in sync with everything that
+# has landed on main but is not in the latest vX.Y.Z tag. Open it any time to
+# see what's queued for the next release. Nothing here publishes a real release
+# — cutting a real tag is the `cut-release` flow (packaging/RELEASING.md).
+
+on:
+  push:
+    branches: [main]
+  # After a real release is published the queue is empty again; refresh (and
+  # remove) the draft. Draft creation/deletion does not fire `released`, so this
+  # cannot recurse.
+  release:
+    types: [released]
+  workflow_dispatch:
+
+concurrency:
+  group: unreleased
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    name: Refresh the "Unreleased" draft release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for git-cliff
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Render unreleased notes
+        run: git cliff --config cliff.toml --unreleased --strip all -o UNRELEASED.md
+
+      - name: Publish / clear the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Empty (only whitespace) => nothing unreleased; drop any stale draft.
+          if ! grep -q '[^[:space:]]' UNRELEASED.md 2>/dev/null; then
+            echo "Nothing unreleased — removing the draft if present."
+            gh release delete unreleased --yes --cleanup-tag 2>/dev/null || true
+            exit 0
+          fi
+
+          # Recreate each run so the body always matches main's HEAD. The tag
+          # 'unreleased' only materializes if the draft is ever published (it
+          # isn't), so this leaves no stray tags.
+          gh release delete unreleased --yes --cleanup-tag 2>/dev/null || true
+          gh release create unreleased \
+            --draft \
+            --title "🚧 Unreleased (main @ ${GITHUB_SHA:0:7})" \
+            --notes-file UNRELEASED.md \
+            --target "${GITHUB_SHA}"
+
+          echo "Draft 'unreleased' updated."

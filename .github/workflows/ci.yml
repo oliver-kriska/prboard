@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same ref cancels the in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      # Whole-workspace format check — no compile, so it covers the GPUI binary
+      # too without needing the Metal Toolchain.
+      - run: cargo fmt --all --check
+
+  core:
+    name: Core (clippy + test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (stable + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      # prboard-core has no GPUI/Metal dependency, so this compiles cleanly on
+      # Linux. The root GPUI binary is intentionally not built in CI — see
+      # CLAUDE.md ("Fast core checks only"); build it locally with `make build`.
+      - name: Clippy (prboard-core, warnings as errors)
+        run: cargo clippy -p prboard-core --all-targets -- -D warnings
+      - name: Test (prboard-core spec + golden suite)
+        run: cargo test -p prboard-core
