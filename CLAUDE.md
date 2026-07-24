@@ -42,6 +42,9 @@ The framework choice is validated by an overnight measurement, not assumed: **id
 - `cargo test -p prboard-core` — the fast spec suite (no GPUI compile); run after any change to `core/`.
 - `cargo clippy --all-targets` must stay clean (CI will add `-D warnings`); `cargo fmt` before committing.
 - `cargo build` for the dev binary; `cargo build --release` (LTO) for anything measured or shipped.
-- Run: `./target/debug/prboard --repo owner/name` (`--review` for the incoming queue); config is env-vars for now (see README), TOML at `$XDG_CONFIG_HOME/prboard/config.toml` comes in Step 3.
+- Run: `./target/debug/prboard --repo owner/name` (`--review` for the incoming queue). Config: TOML at `~/.config/prboard/config.toml` (repo/repos/refresh/theme/reviewers/issue_link); precedence CLI > env > file > cwd detection (see README).
+- Local .app: `scripts/bundle-app.sh` (after a release build) installs an ad-hoc-signed `~/Applications/prboard.app`; the notarized pipeline is `packaging/RELEASING.md`.
+- Visuals: `src/design.rs` `refine_theme()` owns the palette (spec: `.claude/research/2026-07-24-visual-design.md`); it must be re-applied after every `Theme::change`/`sync_system_appearance` — `ThemePref::apply` does this. Status semantics render as themed dots + text, never raw emoji (core note strings keep their emoji; the UI strips them).
+- **Screenshot verification gotcha:** GPUI does not repaint occluded windows. Bring the window frontmost (osascript `set frontmost … to true`) before `screencapture`, or you'll capture a stale first frame that looks like a hung fetch.
 - `.claude/research/2026-07-24-step0-build-findings.md` records where reality corrected the research (no `DataTable` in 0.5.1, MSRV 1.88, Metal Toolchain, ~4 min cold build) — read it before trusting the r2 docs on those points.
 - Name note: `prboard` is free on crates.io but taken on GitHub — publish as `oliver-kriska/prboard` or rename (`prwall`/`pullboard` were candidates).
