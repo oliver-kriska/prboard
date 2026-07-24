@@ -1,2 +1,10 @@
+# Single source of truth for the Rust toolchain. rustup reads this file directly
+# (so do mise and asdf-rust) — no separate .tool-versions is needed for Rust.
+#
+# `channel = "stable"` tracks the latest stable (the dep graph needs >= 1.88).
+# To make CI match a local build exactly, pin an explicit version here
+# (e.g. channel = "1.97.1") and change ci.yml's `dtolnay/rust-toolchain@stable`
+# to `@1.97.1` to match.
 [toolchain]
 channel = "stable"
+components = ["rustfmt", "clippy"]
