@@ -70,12 +70,12 @@ impl AppState {
         self.reset_and_refetch(cx);
     }
 
-    /// Toggle authored ⇄ review (the two prototype dashboards).
-    pub fn switch_mode(&mut self, cx: &mut Context<Self>) {
-        self.mode = match self.mode {
-            Mode::Authored => Mode::Review,
-            Mode::Review => Mode::Authored,
-        };
+    /// Select one of the two prototype dashboards.
+    pub fn set_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
+        if mode == self.mode {
+            return;
+        }
+        self.mode = mode;
         self.reset_and_refetch(cx);
     }
 

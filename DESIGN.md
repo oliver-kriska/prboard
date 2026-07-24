@@ -67,8 +67,10 @@ keycaps 3 px. Small radii are the native-Mac tell.
   One neutral style (no GitHub label hues). 🐛 prefixes the bug label — the single permitted emoji.
   Max 2 visible + `+N` overflow; tooltip carries the full list.
 - **Titlebar**: gpui-component `TitleBar` wraps the one-line header — repo Select (semibold) +
-  counts (13 muted) left, `synced Xm ago · API n/limit` (12 muted) right; errors replace the sync
-  text in `danger`. Traffic lights overlay.
+  a small equal-width segmented `TabBar` for **My PRs / Review queue** + flexible counts (13 muted)
+  left, `synced Xm ago · API n/limit` (12 muted) right; errors replace the sync text in `danger`.
+  The selected queue uses a body-colored inset surface, semibold label, and subtle shadow; the
+  inactive queue uses muted text. Traffic lights overlay.
 - **Footer**: keycap legend — key in a bordered `muted` chip (11 px medium), label in 12 px muted.
 
 ## Motion

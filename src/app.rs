@@ -9,8 +9,10 @@ use gpui::{
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Styled, Window,
 };
 use gpui_component::select::{SearchableVec, Select, SelectEvent, SelectState};
+use gpui_component::tab::{Tab, TabBar};
 use gpui_component::table::{Table, TableEvent, TableState};
 use gpui_component::{h_flex, v_flex, ActiveTheme, IndexPath, Sizable, TitleBar};
+use prboard_core::board::Mode;
 
 use crate::state::{relative, AppState};
 use crate::table::BoardTableDelegate;
@@ -195,6 +197,26 @@ impl RootView {
         }
     }
 
+    /// Switch the visible queue from either mouse or keyboard, keeping the
+    /// data query, column set, and persisted preference in lockstep.
+    fn select_mode(&mut self, mode: Mode, cx: &mut Context<Self>) {
+        if self.state.read(cx).mode == mode {
+            return;
+        }
+        self.state.update(cx, |s, cx| s.set_mode(mode, cx));
+        self.table.update(cx, |table, cx| {
+            table.delegate_mut().set_mode(mode);
+            table.refresh(cx);
+        });
+        crate::config::persist_str(
+            "view",
+            match mode {
+                Mode::Authored => "authored",
+                Mode::Review => "review",
+            },
+        );
+    }
+
     fn handle_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -210,20 +232,14 @@ impl RootView {
             }
             "r" => self.state.update(cx, |s, cx| s.refresh(cx)),
             "v" if !platform => {
-                self.state.update(cx, |s, cx| s.switch_mode(cx));
-                let mode = self.state.read(cx).mode;
-                self.table.update(cx, |table, cx| {
-                    table.delegate_mut().set_mode(mode);
-                    table.refresh(cx);
-                });
-                crate::config::persist_str(
-                    "view",
-                    match mode {
-                        prboard_core::board::Mode::Authored => "authored",
-                        prboard_core::board::Mode::Review => "review",
-                    },
-                );
+                let mode = match self.state.read(cx).mode {
+                    Mode::Authored => Mode::Review,
+                    Mode::Review => Mode::Authored,
+                };
+                self.select_mode(mode, cx);
             }
+            "1" if !platform => self.select_mode(Mode::Authored, cx),
+            "2" if !platform => self.select_mode(Mode::Review, cx),
             "t" if !platform => {
                 self.theme_pref = self.theme_pref.next();
                 self.theme_pref.apply(window, cx);
@@ -248,13 +264,14 @@ impl RootView {
         let state = self.state.read(cx);
         let theme = cx.theme();
         let (action, awaiting, drafts) = state.counts();
+        let draft_label = if drafts == 1 { "draft" } else { "drafts" };
         let counts = match state.mode {
             prboard_core::board::Mode::Authored => format!(
-                "{} open · {action} need action · {awaiting} awaiting review · {drafts} drafts",
+                "{} open · {action} need action · {awaiting} awaiting review · {drafts} {draft_label}",
                 state.rows.len()
             ),
             prboard_core::board::Mode::Review => format!(
-                "{} to review · {action} todo · {awaiting} done · {drafts} drafts",
+                "{} open · {action} pending · {awaiting} reviewed · {drafts} {draft_label}",
                 state.rows.len()
             ),
         };
@@ -272,11 +289,43 @@ impl RootView {
             .rate
             .as_ref()
             .map(|r| format!("API {}/{}", r.remaining, r.limit));
+        let selected_mode = match state.mode {
+            Mode::Authored => 0,
+            Mode::Review => 1,
+        };
+        // The queue is a primary scope, not a hidden preference. A compact
+        // toolbar tab view keeps both choices visible and the selected state
+        // persistent (Apple HIG); equal widths prevent either queue from
+        // appearing subordinate. Keyboard 1/2 and v remain accelerators.
+        let view_switcher = TabBar::new("view-switcher")
+            .small()
+            .segmented()
+            .selected_index(selected_mode)
+            .child(Tab::new().label("My PRs").w(px(104.)).font_weight(
+                if state.mode == Mode::Authored {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::MEDIUM
+                },
+            ))
+            .child(Tab::new().label("Review queue").w(px(104.)).font_weight(
+                if state.mode == Mode::Review {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::MEDIUM
+                },
+            ))
+            .on_click(cx.listener(|this, index: &usize, _, cx| {
+                let mode = match index {
+                    0 => Mode::Authored,
+                    _ => Mode::Review,
+                };
+                this.select_mode(mode, cx);
+            }));
 
-        // One-line header (spec §6) living INSIDE the transparent titlebar:
-        // identity + counts left, status right, traffic lights overlaid by
-        // the system. An error replaces the sync text — it IS the sync
-        // status then. TitleBar supplies bg/border/drag/left padding.
+        // One-line toolbar living INSIDE the transparent titlebar: repository
+        // identity, primary queue scope, flexible counts, then sync status.
+        // An error replaces the sync text — it IS the sync status then.
         h_flex()
             .flex_1()
             .pr(px(crate::design::HEADER_PAD_X))
@@ -295,15 +344,19 @@ impl RootView {
                         .child(state.repo.clone()),
                 ),
             })
+            .child(view_switcher)
             .child(
                 div()
+                    .min_w_0()
+                    .flex_1()
+                    .truncate()
                     .text_size(px(13.))
                     .text_color(theme.muted_foreground)
                     .child(counts),
             )
-            .child(div().flex_1())
             .child(
                 h_flex()
+                    .flex_shrink_0()
                     .gap_3()
                     .text_size(px(12.))
                     .text_color(theme.muted_foreground)
@@ -318,18 +371,11 @@ impl RootView {
     fn render_footer(&self, cx: &Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let theme_label = format!("theme ({})", self.theme_pref.label());
-        let view_label = format!(
-            "view ({})",
-            match self.state.read(cx).mode {
-                prboard_core::board::Mode::Authored => "authored",
-                prboard_core::board::Mode::Review => "review",
-            }
-        );
         let hints: Vec<(&str, String)> = vec![
             ("↑↓", "select".into()),
             ("⏎", "open".into()),
             ("y", "copy".into()),
-            ("v", view_label),
+            ("1/2", "views".into()),
             ("r", "refresh".into()),
             ("t", theme_label),
             ("q", "quit".into()),

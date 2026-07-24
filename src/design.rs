@@ -80,6 +80,12 @@ pub fn refine_theme(cx: &mut App) {
         // Chrome sits one step darker than content (Zed/macOS dark idiom).
         t.title_bar = c(0x141517);
         t.title_bar_border = c(0x2C2E33);
+        // Primary board-scope control: muted track, body-colored selected
+        // segment, and a clear text hierarchy in both appearance modes.
+        t.tab_bar_segmented = c(0x25262B);
+        t.tab_foreground = c(0x909296);
+        t.tab_active = c(0x1A1B1E);
+        t.tab_active_foreground = c(0xC1C2C5);
 
         // The one accent: open-color blue.
         t.primary = c(0x228BE6);
@@ -147,6 +153,10 @@ pub fn refine_theme(cx: &mut App) {
 
         t.title_bar = c(0xF8F9FA);
         t.title_bar_border = c(0xDEE2E6);
+        t.tab_bar_segmented = c(0xE9ECEF);
+        t.tab_foreground = c(0x6C757D);
+        t.tab_active = c(0xFFFFFF);
+        t.tab_active_foreground = c(0x212529);
 
         // Accent: blue.7 for fills, blue.8 for text (blue.7 is 4.2:1 — fails).
         t.primary = c(0x1C7ED6);
