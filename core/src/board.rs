@@ -96,6 +96,23 @@ pub struct ReviewSummary {
     pub state: String,
 }
 
+/// A single thing keeping an authored PR out of the merge queue, in the
+/// prototype's canonical (most-blocking-first) order. This is the structured
+/// twin of the human `note`: core owns the *facts*, the UI (`src/table.rs`)
+/// owns *severity, wording, and color*. Never add tone or colors here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Blocker {
+    /// No human has been asked to review. `suggested` is the configured
+    /// default-reviewer list (may be empty when none is configured).
+    NoReviewers {
+        suggested: Vec<String>,
+    },
+    MergeConflict,
+    CiFailing,
+    ChangesRequested,
+    UnresolvedComments(usize),
+}
+
 /// Optional "linked ticket" extraction: a pattern matched against the PR
 /// title and a URL template with an `{id}` placeholder. Project prefixes and
 /// tracker URLs always come from user config.
@@ -160,6 +177,10 @@ pub struct BoardRow {
     pub reviews: Vec<ReviewSummary>,
     pub my_review: Option<String>,
     pub unresolved: usize,
+    /// Structured blockers behind the action `note`, most-blocking-first
+    /// (authored mode only; empty for await/review rows). The UI reorders and
+    /// colors these; the `note` string is generated from exactly this list.
+    pub blockers: Vec<Blocker>,
     pub created_at: String,
     pub note: String,
 }
@@ -224,6 +245,7 @@ fn derive_row(pr: &RawPr, mode: Mode, repo: &str, me: &str, cfg: &BoardConfig) -
         reviews: Vec::new(),
         my_review: None,
         unresolved,
+        blockers: Vec::new(),
         created_at: pr.created_at.clone(),
         note: String::new(),
     };
@@ -258,7 +280,10 @@ fn derive_row(pr: &RawPr, mode: Mode, repo: &str, me: &str, cfg: &BoardConfig) -
             } else {
                 Category::Await
             };
-            row.note = authored_note(&row, cfg);
+            // Structured blockers first (one source of truth), then the exact
+            // legacy note generated from them.
+            row.blockers = authored_blockers(&row, cfg);
+            row.note = authored_note(&row);
         }
         Mode::Review => {
             let mine = my_latest_review(pr, me);
@@ -371,36 +396,64 @@ fn derive_title(raw_title: &str, cfg: &BoardConfig) -> (Option<String>, Option<S
     (issue, issue_url, title)
 }
 
-/// Mode A Note (SKILL.md): action rows combine every applicable blocker,
-/// most-blocking first; await/draft rows are single-state.
-fn authored_note(row: &BoardRow, cfg: &BoardConfig) -> String {
-    match row.category {
-        Category::Action => {
-            let mut parts: Vec<String> = Vec::new();
-            if row.review_state == ReviewState::None {
-                if cfg.default_reviewers.is_empty() {
-                    parts.push("⚠️ no reviewers".to_string());
-                } else {
-                    parts.push(format!(
-                        "⚠️ no reviewers — assign {}",
-                        cfg.default_reviewers.join(" + ")
-                    ));
-                }
+/// The action-note conditions as structured facts, in the prototype's
+/// canonical most-blocking-first order (no reviewers, merge conflict, CI
+/// failure, changes requested, unresolved comments). A non-draft authored row
+/// is `Action` iff this list is non-empty and `Await` iff it is empty, so
+/// await rows carry no blockers.
+fn authored_blockers(row: &BoardRow, cfg: &BoardConfig) -> Vec<Blocker> {
+    let mut blockers = Vec::new();
+    if row.review_state == ReviewState::None {
+        blockers.push(Blocker::NoReviewers {
+            suggested: cfg.default_reviewers.clone(),
+        });
+    }
+    if row.conflict {
+        blockers.push(Blocker::MergeConflict);
+    }
+    if row.ci == Ci::Fail {
+        blockers.push(Blocker::CiFailing);
+    }
+    if row.review_decision.as_deref() == Some("CHANGES_REQUESTED") {
+        blockers.push(Blocker::ChangesRequested);
+    }
+    if row.unresolved > 0 {
+        blockers.push(Blocker::UnresolvedComments(row.unresolved));
+    }
+    blockers
+}
+
+/// The exact SKILL.md note fragment for one blocker — the prototype's wording
+/// and emoji, verbatim. The joined fragments reproduce the legacy `note`
+/// byte-for-byte (pinned by the golden tests).
+fn blocker_note(blocker: &Blocker) -> String {
+    match blocker {
+        Blocker::NoReviewers { suggested } => {
+            if suggested.is_empty() {
+                "⚠️ no reviewers".to_string()
+            } else {
+                format!("⚠️ no reviewers — assign {}", suggested.join(" + "))
             }
-            if row.conflict {
-                parts.push("🔴 merge conflict — rebase".to_string());
-            }
-            if row.ci == Ci::Fail {
-                parts.push("❌ CI failing".to_string());
-            }
-            if row.review_decision.as_deref() == Some("CHANGES_REQUESTED") {
-                parts.push("✋ changes requested".to_string());
-            }
-            if row.unresolved > 0 {
-                parts.push(format!("🟡 {} unresolved comments", row.unresolved));
-            }
-            parts.join(" · ")
         }
+        Blocker::MergeConflict => "🔴 merge conflict — rebase".to_string(),
+        Blocker::CiFailing => "❌ CI failing".to_string(),
+        Blocker::ChangesRequested => "✋ changes requested".to_string(),
+        Blocker::UnresolvedComments(n) => format!("🟡 {n} unresolved comments"),
+    }
+}
+
+/// Mode A Note (SKILL.md): action rows combine every applicable blocker,
+/// most-blocking first; await/draft rows are single-state. Action rows render
+/// straight from `row.blockers`, so the note and the structured list can never
+/// disagree.
+fn authored_note(row: &BoardRow) -> String {
+    match row.category {
+        Category::Action => row
+            .blockers
+            .iter()
+            .map(blocker_note)
+            .collect::<Vec<_>>()
+            .join(" · "),
         Category::Await => match row.review_state {
             ReviewState::Approved => "🟢 approved — mergeable".to_string(),
             ReviewState::Commented => "🟢 commented — awaiting approval".to_string(),
@@ -559,6 +612,76 @@ mod tests {
             "⚠️ no reviewers — assign alice + bob · 🔴 merge conflict — rebase · \
              ❌ CI failing · ✋ changes requested · 🟡 2 unresolved comments"
         );
+    }
+
+    #[test]
+    fn no_reviewer_blocker_carries_configured_reviewers() {
+        let row = derive_one(base(1), Mode::Authored);
+        assert_eq!(
+            row.blockers,
+            vec![Blocker::NoReviewers {
+                suggested: vec!["alice".into(), "bob".into()]
+            }]
+        );
+    }
+
+    #[test]
+    fn no_reviewer_blocker_is_empty_without_config() {
+        let row = derive_rows(
+            &[pr(base(1))],
+            Mode::Authored,
+            "acme/widgets",
+            "me",
+            &BoardConfig::default(),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        assert_eq!(
+            row.blockers,
+            vec![Blocker::NoReviewers { suggested: vec![] }]
+        );
+    }
+
+    #[test]
+    fn kitchen_sink_row_lists_every_blocker_in_prototype_order() {
+        let mut v = base(3);
+        v["mergeable"] = json!("CONFLICTING");
+        v["reviewDecision"] = json!("CHANGES_REQUESTED");
+        v["commits"]["nodes"] = json!([{"commit": {"statusCheckRollup": {"state": "FAILURE"}}}]);
+        v["reviewThreads"]["nodes"] = json!([
+            {"isResolved": false}, {"isResolved": false}, {"isResolved": true}
+        ]);
+        let row = derive_one(v, Mode::Authored);
+        assert_eq!(
+            row.blockers,
+            vec![
+                Blocker::NoReviewers {
+                    suggested: vec!["alice".into(), "bob".into()]
+                },
+                Blocker::MergeConflict,
+                Blocker::CiFailing,
+                Blocker::ChangesRequested,
+                Blocker::UnresolvedComments(2),
+            ]
+        );
+        // And the generated note is byte-identical to the legacy wording.
+        assert_eq!(
+            row.note,
+            "⚠️ no reviewers — assign alice + bob · 🔴 merge conflict — rebase · \
+             ❌ CI failing · ✋ changes requested · 🟡 2 unresolved comments"
+        );
+    }
+
+    #[test]
+    fn await_rows_have_no_blockers() {
+        let mut v = base(2);
+        v["reviews"]["nodes"] = json!([
+            {"author": {"login": "alice"}, "state": "APPROVED", "submittedAt": "2026-07-21T10:00:00Z"}
+        ]);
+        let row = derive_one(v, Mode::Authored);
+        assert_eq!(row.category, Category::Await);
+        assert!(row.blockers.is_empty());
     }
 
     #[test]
