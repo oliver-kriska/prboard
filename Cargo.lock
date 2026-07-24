@@ -4169,13 +4169,10 @@ dependencies = [
 name = "prboard"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "chrono",
  "gpui",
  "gpui-component",
- "open",
  "prboard-core",
- "serde_json",
 ]
 
 [[package]]
