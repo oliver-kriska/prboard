@@ -1,13 +1,50 @@
 # prboard
 
-A GitHub PR review dashboard as a native desktop app (Rust, GPUI +
-[gpui-component](https://github.com/longbridge/gpui-component)). One dense,
-always-open table of your pull requests with a computed **Note** per row saying
-what to do next — read-only, refreshing itself, opening PRs in the browser.
+A GitHub PR-review dashboard as a native desktop app (Rust, GPUI +
+[gpui-component](https://github.com/longbridge/gpui-component)) for macOS and
+Linux. One dense, always-open table of your pull requests with a computed
+**Note** per row saying what to do next — so you glance instead of tab-cycling
+through github.com.
 
-**Status: Step-0 walking skeleton.** The framework choice is gated on an
-overnight memory measurement (see below). Roadmap and evidence: `HANDOFF.md`
-and `.claude/research/`.
+- **Every signal in one row:** PR number, draft/ready, CI state, unresolved
+  threads, merge conflicts, labels, linked issue, reviewers and their verdicts
+  — plus the Note ("CI red — fix before ping", "2 unresolved threads", …).
+- **Two queues, one click apart:** **My PRs** (needs action → awaiting review
+  → drafts) and your incoming **Review queue**.
+- **Cheap and calm:** auto-refresh (default 5 min) costs one GraphQL search
+  per cycle; the header always shows "synced Xm ago" and your live API budget.
+  No animations, ~0 idle CPU/GPU, flat memory.
+- **Read-only by design:** it opens PRs in your browser; it never merges,
+  assigns, or comments. Auth is your existing [`gh`](https://cli.github.com)
+  CLI login — prboard never touches a token itself.
+
+**Status: early (Step-0 walking skeleton).** The framework choice is gated on
+an overnight memory measurement (see below). Roadmap and evidence:
+`HANDOFF.md` and `.claude/research/`.
+
+## Install
+
+Requires an authenticated [`gh`](https://cli.github.com) (`gh auth login`).
+
+**macOS (Apple silicon) — latest release:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/oliver-kriska/prboard/main/install.sh | sh
+```
+
+**Any platform — build current `main` from source** (needs git + stable
+Rust ≥ 1.88; macOS also needs Xcode's Metal toolchain):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/oliver-kriska/prboard/main/install.sh | sh -s -- --from-source
+```
+
+Both install `prboard.app` into `~/Applications` (Spotlight-launchable);
+on Linux the source build installs the binary to `~/.local/bin`. Why curl and
+not a browser download: the app is ad-hoc signed until notarization lands, and
+curl skips the Gatekeeper quarantine attribute a browser would add. Homebrew
+(`brew install --cask …`) is templated in `packaging/` and blocked on an Apple
+Developer ID — see `packaging/RELEASING.md`.
 
 ## Running
 
@@ -20,18 +57,15 @@ cargo build --release
 ./target/release/prboard --review             # your incoming review queue
 ```
 
-### Install as a Mac app (Spotlight)
+### Install as a Mac app from a checkout
 
 ```sh
 cargo build --release
 scripts/bundle-app.sh     # assembles + ad-hoc-signs ~/Applications/prboard.app
 ```
 
-Then launch it from Spotlight like any app. Spotlight launches carry no shell
-env and no working directory, so configure via the config file below (at
-minimum `repo`). Distribution via Homebrew (`brew install --cask
-oliver-kriska/tap/prboard`) is templated in `packaging/` but blocked on an
-Apple Developer ID for notarization — see `packaging/RELEASING.md`.
+Spotlight launches carry no shell env and no working directory, so configure
+via the config file below (at minimum `repo`).
 
 ### Configuration
 

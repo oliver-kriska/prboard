@@ -6,15 +6,21 @@
 # release pipeline (Zed's cargo-bundle fork + Developer ID + notarization)
 # is documented in packaging/RELEASING.md.
 #
-# Usage: scripts/bundle-app.sh
+# Usage: scripts/bundle-app.sh [--stage-only]
+#   --stage-only          stop after codesign; leave the .app in target/bundle
+#                         (used by release packaging to tar it up)
+#   PRBOARD_INSTALL_DIR   override the install destination (default ~/Applications)
 # Requires: target/release/prboard (cargo build --release), stock macOS tools.
 set -euo pipefail
+
+STAGE_ONLY=0
+[[ "${1:-}" == "--stage-only" ]] && STAGE_ONLY=1
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BINARY="$REPO_ROOT/target/release/prboard"
 STAGE="$REPO_ROOT/target/bundle"
 APP="$STAGE/prboard.app"
-INSTALL_DIR="$HOME/Applications"
+INSTALL_DIR="${PRBOARD_INSTALL_DIR:-$HOME/Applications}"
 BUNDLE_ID="dev.oliverkriska.prboard"
 
 step() { printf '\n==> %s\n' "$*"; }
@@ -151,6 +157,10 @@ codesign --force --deep -s - "$APP"
 codesign --verify --deep "$APP"
 
 # --- install ---------------------------------------------------------------
+if [[ "$STAGE_ONLY" == 1 ]]; then
+  step "Staged (not installed): $APP (v$VERSION, ad-hoc signed)"
+  exit 0
+fi
 step "Installing to $INSTALL_DIR/prboard.app"
 mkdir -p "$INSTALL_DIR"
 rm -rf "$INSTALL_DIR/prboard.app"
