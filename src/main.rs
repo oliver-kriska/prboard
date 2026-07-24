@@ -31,8 +31,8 @@ Env vars override the file:
   PRBOARD_REPO                 owner/name
   PRBOARD_REFRESH_SECS         refresh interval (default 300, floor 30)
   PRBOARD_THEME                system | light | dark (default system; `t` cycles)
-  PRBOARD_ISSUE_PATTERN        e.g. ENA-[0-9]+
-  PRBOARD_ISSUE_URL_TEMPLATE   e.g. https://linear.app/acme/issue/{id}
+  PRBOARD_ISSUE_PATTERN        e.g. PROJ-[0-9]+
+  PRBOARD_ISSUE_URL_TEMPLATE   e.g. https://tracker.example.com/issues/{id}
   PRBOARD_DEFAULT_REVIEWERS    comma-separated logins for the no-reviewer note";
 
 fn parse_args() -> Result<(Option<String>, Option<Mode>), String> {

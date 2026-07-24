@@ -147,7 +147,7 @@ impl BoardTableDelegate {
     }
 }
 
-/// Aggregate review-state word for the merged Review column ("✓ mkurkov —
+/// Aggregate review-state word for the merged Review column ("✓ alice —
 /// approved"). Requested-but-unreviewed is handled separately (no reviews yet).
 fn review_state_word_aggregate(state: ReviewState) -> &'static str {
     match state {
