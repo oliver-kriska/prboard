@@ -13,8 +13,9 @@
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    div, px, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Pixels, Stateful, StatefulInteractiveElement, Styled, Window,
+    div, px, rems, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Stateful, StatefulInteractiveElement, Styled,
+    Window,
 };
 use gpui_component::table::{Column, TableDelegate, TableState};
 use gpui_component::tooltip::Tooltip;
@@ -81,6 +82,61 @@ const QUANTUM: f32 = 16.0;
 /// Placeholder viewport for the delegate's initial columns; `RootView::new`
 /// immediately relayouts to the real window width.
 const DEFAULT_VIEWPORT_WIDTH: f32 = 1280.0;
+
+/// Horizontal padding gpui-component adds to every cell. The table is rendered
+/// `.small()` (Size::Small → 6px each side); subtracted when eliding cell text.
+const CELL_PAD_X: f32 = 12.0;
+/// The cell font size, in rems. The `.small()` table applies `text_sm()` =
+/// `rems(0.875)` to every cell, *overriding* the ambient 13px — so eliding must
+/// measure at this size, not the ambient one, or long labels clip their "…".
+/// Keep in lockstep with the `.small()`/`TABLE_TEXT_PX` choice in `app.rs`.
+const CELL_FONT_REM: f32 = 0.875;
+/// `gap_1` / `gap_1p5` in px at the default 16px rem — the inter-child gaps in
+/// the title/note/review cells, needed for the elision width math.
+const GAP_1: f32 = 4.0;
+const GAP_1P5: f32 = 6.0;
+/// A hair of slack so the appended "…" never lands under the cell's overflow
+/// clip (our measured width can differ from the painted width by sub-pixels).
+const ELIDE_SAFETY: f32 = 4.0;
+
+/// The font size (px) cells actually render at — see `CELL_FONT_REM`.
+fn cell_font_px(window: &Window) -> Pixels {
+    rems(CELL_FONT_REM).to_pixels(window.rem_size())
+}
+
+/// Pixel width of `text` at the cell's rendered font size.
+fn measure_width(window: &mut Window, text: &str) -> Pixels {
+    if text.is_empty() {
+        return px(0.);
+    }
+    let font_size = cell_font_px(window);
+    let run = window.text_style().to_run(text.len());
+    window
+        .text_system()
+        .layout_line(text, font_size, &[run], None)
+        .width
+}
+
+/// Truncate `text` with a trailing "…" so it fits within `max_width`, at the
+/// cell's rendered font size and using gpui's own line metrics. Done by hand
+/// because gpui's in-cell `.truncate()` is inert inside gpui-component's
+/// virtualized table: the row-measure pass shapes and caches the *untruncated*
+/// line at an indefinite width, and the nowrap text cache then never
+/// re-truncates at the real width. So we elide the string ourselves and render
+/// a plain, already-fitting label.
+fn elide(window: &mut Window, text: &str, max_width: Pixels) -> String {
+    if text.is_empty() || max_width <= px(0.) {
+        return text.to_string();
+    }
+    let font_size = cell_font_px(window);
+    let font = window.text_style().font();
+    let mut runs = vec![window.text_style().to_run(text.len())];
+    window
+        .text_system()
+        .line_wrapper(font, font_size)
+        .truncate_line(text.to_string().into(), max_width, "…", &mut runs)
+        .to_string()
+}
 
 /// The responsive column set for a mode at a given width class and viewport.
 ///
@@ -574,7 +630,7 @@ impl TableDelegate for BoardTableDelegate {
         &mut self,
         row_ix: usize,
         col_ix: usize,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         // Header rows carry no cell content — the label is an overlay from
@@ -762,12 +818,21 @@ impl TableDelegate for BoardTableDelegate {
                 } else if !row.requested.is_empty() {
                     let names = row.requested.join(", ");
                     let full = format!("requested: {names}");
+                    // Elide the names to the room left by the "→" and the
+                    // "— requested" suffix (both flex_shrink_0), with a real "…".
+                    let arrow_w = measure_width(window, "→");
+                    let suffix_w = measure_width(window, "— requested");
+                    let col_w = self.columns[col_ix].width;
+                    let avail =
+                        col_w - arrow_w - suffix_w - px(CELL_PAD_X + GAP_1 + GAP_1 + ELIDE_SAFETY);
+                    let names = elide(window, &names, avail);
                     return h_flex()
+                        .w_full()
                         .gap_1()
                         .items_center()
                         .overflow_hidden()
                         .child(div().flex_shrink_0().text_color(muted).child("→"))
-                        .child(div().min_w_0().truncate().child(names))
+                        .child(div().flex_shrink_0().child(names))
                         .child(
                             div()
                                 .flex_shrink_0()
@@ -788,14 +853,27 @@ impl TableDelegate for BoardTableDelegate {
                     None => row.title.clone(),
                 };
                 let tag_color = if dim { muted } else { theme.accent_foreground };
-                // Ellipsis, not a mid-word clip — it's the affordance that
-                // says "there's more, hover" (critique #3).
+                // Elide the title to the width the flexible region actually has
+                // (column minus the issue tag, gap and cell padding). A real
+                // "…", not a mid-word clip — the affordance that says "there's
+                // more, hover" (critique #3). Done by hand via `elide` because
+                // gpui's in-cell `.truncate()` is inert in this table.
+                let col_w = self.columns[col_ix].width;
+                let issue_w = row
+                    .issue
+                    .as_deref()
+                    .map(|s| measure_width(window, s))
+                    .unwrap_or(px(0.));
+                let gap = if row.issue.is_some() { GAP_1 } else { 0.0 };
+                let avail = col_w - issue_w - px(CELL_PAD_X + gap + ELIDE_SAFETY);
+                let title = elide(window, &row.title, avail);
                 let inner = match (&row.issue, &row.issue_url) {
                     // A linked issue is a single-click link of its own
                     // (critique #5): the tag opens the tracker, not the PR.
                     (Some(issue), Some(issue_url)) => {
                         let issue_url = issue_url.clone();
                         h_flex()
+                            .w_full()
                             .gap_1()
                             .overflow_hidden()
                             .when(dim, |t| t.text_color(muted))
@@ -816,9 +894,10 @@ impl TableDelegate for BoardTableDelegate {
                                         }
                                     })),
                             )
-                            .child(div().min_w_0().truncate().child(row.title.clone()))
+                            .child(div().flex_shrink_0().child(title))
                     }
                     (Some(issue), None) => h_flex()
+                        .w_full()
                         .gap_1()
                         .overflow_hidden()
                         .when(dim, |t| t.text_color(muted))
@@ -828,12 +907,12 @@ impl TableDelegate for BoardTableDelegate {
                                 .text_color(tag_color)
                                 .child(issue.clone()),
                         )
-                        .child(div().min_w_0().truncate().child(row.title.clone())),
-                    (None, _) => h_flex().overflow_hidden().child(
+                        .child(div().flex_shrink_0().child(title)),
+                    (None, _) => h_flex().w_full().overflow_hidden().child(
                         div()
-                            .truncate()
+                            .flex_shrink_0()
                             .when(dim, |t| t.text_color(muted))
-                            .child(row.title.clone()),
+                            .child(title),
                     ),
                 };
                 return inner
@@ -875,12 +954,24 @@ impl TableDelegate for BoardTableDelegate {
                 }
                 // pr_2: the terminal column needs an optical margin the 6px
                 // cell pad doesn't give (critique #4).
-                let mut cell = h_flex().gap_1p5().items_center().overflow_hidden().pr_2();
+                let mut cell = h_flex()
+                    .w_full()
+                    .gap_1p5()
+                    .items_center()
+                    .overflow_hidden()
+                    .pr_2();
                 if let Some(color) = dot_color {
                     cell = cell.child(status_dot(color));
                 }
                 // Primary never truncates away; the muted tail absorbs the
-                // ellipsis when the row is narrow.
+                // ellipsis when the row is narrow. Elide the tail to the space
+                // the dot + primary leave (a real "…", see `elide`).
+                let dot_region = if dot_color.is_some() {
+                    STATUS_DOT + GAP_1P5
+                } else {
+                    0.0
+                };
+                let primary_w = measure_width(window, &primary);
                 cell = cell.child(
                     div()
                         .flex_shrink_0()
@@ -888,7 +979,12 @@ impl TableDelegate for BoardTableDelegate {
                         .child(primary),
                 );
                 if !tail.is_empty() {
-                    cell = cell.child(div().min_w_0().truncate().text_color(muted).child(tail));
+                    let col_w = self.columns[col_ix].width;
+                    let avail = col_w
+                        - primary_w
+                        - px(CELL_PAD_X + 8.0 + dot_region + GAP_1P5 + ELIDE_SAFETY);
+                    let tail = elide(window, &tail, avail);
+                    cell = cell.child(div().flex_shrink_0().text_color(muted).child(tail));
                 }
                 return cell
                     .id(("note", row_ix))
