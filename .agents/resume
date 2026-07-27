@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# prboard has no databases, tunnels, or supervised services to restart. Keep
+# wake-up fast and report a clear repair instruction if setup was not completed.
+if [[ -f "$HOME/.cargo/env" ]]; then
+  # shellcheck disable=SC1091
+  source "$HOME/.cargo/env"
+fi
+
+missing=()
+for command in cargo gh; do
+  command -v "$command" >/dev/null 2>&1 || missing+=("$command")
+done
+
+if ((${#missing[@]})); then
+  printf 'Missing orb prerequisites: %s. Run .agents/setup.\n' "${missing[*]}" >&2
+  exit 1
+fi
+
+echo "prboard orb prerequisites are ready; no services need restarting"
