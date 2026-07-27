@@ -32,6 +32,15 @@ Requires an authenticated [`gh`](https://cli.github.com) (`gh auth login`).
 curl -fsSL https://raw.githubusercontent.com/oliver-kriska/prboard/main/install.sh | sh
 ```
 
+On a first install, the script detects the current checkout's repo or asks for
+`owner/name`, then writes the minimal config needed for Spotlight launches. For
+a non-interactive install, pass it explicitly:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/oliver-kriska/prboard/main/install.sh \
+  | sh -s -- --repo owner/name
+```
+
 **Any platform — build current `main` from source** (needs git + stable
 Rust ≥ 1.88; macOS also needs Xcode's Metal toolchain):
 
@@ -41,10 +50,10 @@ curl -fsSL https://raw.githubusercontent.com/oliver-kriska/prboard/main/install.
 
 Both install `prboard.app` into `~/Applications` (Spotlight-launchable);
 on Linux the source build installs the binary to `~/.local/bin`. Why curl and
-not a browser download: the app is ad-hoc signed until notarization lands, and
-curl skips the Gatekeeper quarantine attribute a browser would add. Homebrew
-(`brew install --cask …`) is templated in `packaging/` and blocked on an Apple
-Developer ID — see `packaging/RELEASING.md`.
+not a browser download: until notarization lands, the installer strips download
+metadata and ad-hoc signs and verifies the app locally. Homebrew (`brew install
+--cask …`) is templated in `packaging/` and blocked on an Apple Developer ID —
+see `packaging/RELEASING.md`.
 
 ## Running
 

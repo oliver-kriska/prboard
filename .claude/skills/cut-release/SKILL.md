@@ -86,13 +86,13 @@ cat >> "$SCRATCHPAD/notes.md" <<'EOF'
     curl -fsSL https://raw.githubusercontent.com/oliver-kriska/prboard/main/install.sh | sh
 
 Use curl, not a browser download — the `.app` is ad-hoc-signed until notarization
-lands, and curl skips the Gatekeeper quarantine attribute a browser would add.
+lands; the installer strips download metadata, then signs and verifies it locally.
 Apple-silicon only for now; other platforms build from source with `--from-source`.
 EOF
 
 # d) Stage (never installs) and tar the artifact:
 scripts/bundle-app.sh --stage-only                      # -> target/bundle/prboard.app
-tar czf "$SCRATCHPAD/prboard-v$V-macos-arm64.tar.gz" -C target/bundle prboard.app
+COPYFILE_DISABLE=1 tar czf "$SCRATCHPAD/prboard-v$V-macos-arm64.tar.gz" -C target/bundle prboard.app
 ```
 
 ### 4. The gate — show the user and wait
@@ -123,7 +123,7 @@ untouched. A release is not done until this passes against the live release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/oliver-kriska/prboard/main/install.sh \
-  | sh -s -- --dir "$SCRATCHPAD/install-test"
+  | sh -s -- --dir "$SCRATCHPAD/install-test" --repo oliver-kriska/prboard
 codesign --verify --deep "$SCRATCHPAD/install-test/prboard.app"
 ```
 
