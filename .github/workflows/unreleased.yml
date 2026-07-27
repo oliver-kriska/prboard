@@ -9,10 +9,10 @@ on:
   push:
     branches: [main]
   # After a real release is published the queue is empty again; refresh (and
-  # remove) the draft. Draft creation/deletion does not fire `released`, so this
+  # remove) the draft. Draft creation/deletion fires neither event, so this
   # cannot recurse.
   release:
-    types: [released]
+    types: [released, prereleased]
   workflow_dispatch:
 
 concurrency:
@@ -57,8 +57,10 @@ jobs:
               [ -n "$id" ] && gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/$id"
             done
 
-          # Empty (only whitespace) => nothing unreleased; leave no draft.
-          if ! grep -q '[^[:space:]]' UNRELEASED.md 2>/dev/null; then
+          # git-cliff keeps the "Unreleased" heading even when there are no
+          # commits. A release body has one `- …` line per actual commit, so use
+          # that—not non-whitespace—as the content test.
+          if ! grep -q '^- ' UNRELEASED.md 2>/dev/null; then
             echo "Nothing unreleased — no draft created."
             exit 0
           fi
