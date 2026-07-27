@@ -7,7 +7,6 @@ on:
     branches: [main]
     paths:
       - Cargo.toml
-      - .github/workflows/release-build.yml
   workflow_dispatch:
     inputs:
       ref:
@@ -77,12 +76,12 @@ jobs:
             echo "AppleDouble metadata found in $asset" >&2
             exit 1
           fi
-          shasum -a 256 "dist/$asset" > "dist/$asset.sha256"
+          (cd dist && shasum -a 256 "$asset" > "$asset.sha256")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
 
       - name: Upload release candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: prboard-v${{ steps.package.outputs.version }}-macos-arm64
           path: dist/*
