@@ -96,20 +96,18 @@ COPYFILE_DISABLE=1 tar czf "$SCRATCHPAD/prboard-v$V-macos-arm64.tar.gz" -C targe
 ```
 
 If this thread runs in a non-macOS orb, do not fake or cross-compile the `.app`.
-After the gate is approved and the release commit is pushed, dispatch the manual
-hosted-Mac build at that exact commit, then download its artifact:
+After the gate is approved, pushing the release commit (which changes
+`Cargo.toml`) automatically starts the hosted-Mac build at that exact commit.
+Wait for it to succeed, then download its artifact:
 
 ```sh
-SHA=$(git rev-parse HEAD)
-gh workflow run release-build.yml --ref main -f ref="$SHA"
-# Wait for that workflow run to succeed, then:
 gh run download <run-id> -n "prboard-v$V-macos-arm64" -D "$SCRATCHPAD"
 shasum -a 256 -c "$SCRATCHPAD/prboard-v$V-macos-arm64.tar.gz.sha256"
 ```
 
-The workflow only builds and uploads an Actions artifact; it never creates a tag
-or release. The user approval at the gate is still required before dispatching
-it as part of Phase B.
+The workflow can also be dispatched manually with an exact `ref` from GitHub's
+UI or a token with Actions write permission. It only builds and uploads an
+Actions artifact; it never creates a tag or release.
 
 ### 4. The gate — show the user and wait
 

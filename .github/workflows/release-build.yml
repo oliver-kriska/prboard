@@ -3,6 +3,11 @@ name: Release build
 # Builds the ad-hoc-signed Apple-silicon archive without publishing it. Release
 # publication stays a separate, human-approved step in the cut-release flow.
 on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - .github/workflows/release-build.yml
   workflow_dispatch:
     inputs:
       ref:
@@ -14,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-build-${{ inputs.ref }}
+  group: release-build-${{ inputs.ref || github.sha }}
   cancel-in-progress: false
 
 env:
@@ -28,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Require an Apple-silicon runner
         run: test "$(uname -m)" = arm64
