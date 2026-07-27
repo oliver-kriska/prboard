@@ -1,0 +1,38 @@
+#!/bin/sh
+# prboard pre-push hook — the thorough gate CI can't run.
+#
+# CI only compiles prboard-core (no GPUI/Metal), so app-layer breakage never
+# shows up there. This hook builds and lints the WHOLE workspace including the
+# GPUI app binary, catching it locally before it reaches main. It's slower than
+# pre-commit because it compiles the app — but a push is the right moment to pay
+# for that, and it's the only automated check the app binary ever gets.
+#
+# Skip:  git push --no-verify   |   PRBOARD_SKIP_HOOKS=1 git push …
+# Install: make hooks
+
+set -eu
+
+if [ -n "${PRBOARD_SKIP_HOOKS:-}" ]; then
+  echo "pre-push: skipped (PRBOARD_SKIP_HOOKS set)"
+  exit 0
+fi
+
+# stdin gives one line per ref being pushed:
+#   <local ref> <local sha> <remote ref> <remote sha>
+# A local sha of all zeros means the ref is being deleted — nothing to build.
+# Skip when every line is a deletion (or there's nothing on stdin at all).
+has_work=false
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  case "$local_sha" in
+    "" ) : ;;                 # blank line
+    *[!0]* ) has_work=true ;; # any non-zero char => a real ref being pushed
+  esac
+done
+if [ "$has_work" = false ]; then
+  echo "pre-push: only deletions / nothing to push — skipping verify"
+  exit 0
+fi
+
+echo "pre-push: full-workspace verify (fmt + clippy + test, incl. the GPUI app)…"
+make verify
+echo "pre-push: OK"

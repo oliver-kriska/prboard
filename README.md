@@ -130,6 +130,11 @@ make hooks     # install the git pre-commit + commit-msg hooks (one-time)
 - **Pre-commit hook** runs the same `check` gate, but only when Rust/Cargo files
   are staged (docs-only commits stay instant). Bypass with `git commit
   --no-verify` or `PRBOARD_SKIP_HOOKS=1`.
+- **Pre-push hook** runs `make verify` — the full-workspace gate incl. the GPUI
+  app binary (`fmt --all --check` + `clippy --all-targets -D warnings` +
+  `test --workspace`). This is the one automated check the app binary gets, since
+  CI only compiles `prboard-core`; it needs the Metal Toolchain and is slower.
+  Bypass with `git push --no-verify` or `PRBOARD_SKIP_HOOKS=1`.
 - **CI** (`.github/workflows/ci.yml`) runs `fmt --check` and clippy+test on
   `prboard-core` for every push and PR to `main`. The GPUI binary is not built
   in CI — build it locally with `make build`.

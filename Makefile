@@ -4,7 +4,7 @@
 # The GPUI binary (build/run/release) compiles Metal shaders and needs the Xcode
 # Metal Toolchain locally — see CLAUDE.md.
 
-.PHONY: help fmt fmt-check lint lint-all test build release run install check ci fix \
+.PHONY: help fmt fmt-check lint lint-all verify test build release run install check ci fix \
         hooks changelog unreleased clean
 
 help: ## Show this help
@@ -38,6 +38,11 @@ fix: ## Auto-fix formatting and the clippy lints that are auto-fixable
 lint-all: ## Clippy on the ENTIRE workspace incl. the GPUI binary (Metal required)
 	cargo clippy --all-targets -- -D warnings
 
+verify: ## Full-workspace gate incl. the GPUI app (needs Metal) — what pre-push runs
+	cargo fmt --all --check
+	cargo clippy --all-targets -- -D warnings
+	cargo test --workspace
+
 build: ## Debug build of the app
 	cargo build
 
@@ -64,9 +69,9 @@ unreleased: ## Print what's on main but not in the latest tag
 
 ## ---- Setup -------------------------------------------------------------------
 
-hooks: ## Install the repo git hooks (pre-commit + commit-msg)
+hooks: ## Install the repo git hooks (pre-commit + commit-msg + pre-push)
 	git config core.hooksPath .githooks
-	@echo "core.hooksPath -> .githooks (pre-commit + commit-msg active)"
+	@echo "core.hooksPath -> .githooks (pre-commit, commit-msg, pre-push active)"
 
 clean: ## Remove build artifacts
 	cargo clean
